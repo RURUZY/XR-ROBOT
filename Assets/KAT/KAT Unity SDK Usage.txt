@@ -1,0 +1,24 @@
+﻿KAT Universal SDK V 1.9.2
+
+[Welcome]
+Welcome to the KAT Universal SDK for Unity. With this SDK, you can develop with all KAT devices without additional adaptation work. All devices adhere to the same interface, named the KATNativeSDK class. For the simplest usage, simply drag the [KATDemoWalker] prefab into your scene and enable OpenXR support in Unity. For advanced development, the comments in KATNativeSDK.cs provide comprehensive details on all SDK features.
+
+[Release Notes]
+1.8.9+: Merged Alert Wnd to Gateway (still some ui layout issure)
+1.8.2: Add & Fix 
+1.8.1: Fix some bug with Android SDK
+1.8: Added the kat_sdk_intergrate tag in AndroidManifest.xml. Applications developed with the SDK should set the value of this tag to "kat_native".
+1.7: Added Vibrate/LED Power Adjust & double trigger calibration demo
+1.6.1: Added Force Calibrate to KATXRWalker.
+1.6: Added and fixed full Nexus support. All features now work on both PC and Android.
+1.4: Added Nexus support for PC Editor.
+1.3: Added GetSDKInterfaceVersion function.
+1.2.1: Resolved issue where Unreal or Unity Editor would lock the KATNativeSDK.dll file under the KAT Gateway, KAT Industry, or Device Emulator folder.
+1.2: Renamed KATNativeSDK to KATSDKWrapper, which serves as a wrapper to load the library under the KAT Gateway or KAT Industry folder, making the SDK version independent.
+1.1: Added support for Android standalone devices (Meta Quest Series, Pico, YVR, etc.). Demos now work on Android devices.
+
+[Demos]
+Get Devices Demo: This demo shows how to query all KAT devices to retrieve their name, type, and serial number.
+Raw Data Demo: This demo guides you on how to get raw data from KATNativeSDK, including connection states, body rotation as quaternion, and speed with local direction as Vector3.
+Walk Demo: Demonstrates how to walk with your KAT Treadmill devices.
+C2 Extension and ExtraData Demo: Shows how to use extensions such as the haptic engine and LED in KAT Walk C2, and provides more data like single foot state, speed, etc.

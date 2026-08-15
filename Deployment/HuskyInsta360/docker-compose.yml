@@ -1,0 +1,37 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.17.0
+    container_name: husky-insta360-mediamtx
+    network_mode: host
+    restart: unless-stopped
+
+  insta360-test:
+    build: .
+    image: husky-insta360:test
+    container_name: husky-insta360-test
+    depends_on:
+      - mediamtx
+    network_mode: host
+    privileged: true
+    environment:
+      DISPLAY: ":0"
+      XAUTHORITY: /xauth/:0
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display,video
+      __EGL_VENDOR_LIBRARY_FILENAMES: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+    volumes:
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+      - type: bind
+        source: /var/run/lightdm/root
+        target: /xauth
+        read_only: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: "no"
