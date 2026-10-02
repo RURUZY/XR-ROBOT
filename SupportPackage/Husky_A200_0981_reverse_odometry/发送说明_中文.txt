@@ -1,0 +1,10 @@
+官方技术支持邮箱：support@clearpathrobotics.com
+官方工单：https://support.clearpathrobotics.com/hc/en-us/requests/new
+
+使用 Email_Draft_EN.txt 作为邮件正文，附上外层 ZIP；也可在工单中复制正文并上传报告及 bag。
+发送前补充姓名、单位/项目号、机身标签序列号、Ubuntu 版本和内核。
+A200-0981 目前仅由主机名推断，请核对机身标签。
+Ubuntu/内核查询命令：lsb_release -ds 和 uname -r。
+此包尚未发送给任何人。
+
+报告已区分：用户目测、录制事实、可能原因和未证实事项。两份 bag 都只录到了倒退和静止，不能用它们证明前进或低速正常/异常。没有收到 IMU 数据，不等于已证明未安装 IMU。右侧反馈异常不等于已经确认编码器损坏。

@@ -1455,7 +1455,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 540981354}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: da61c5d3b0986194da7d6b7cb94d6154, type: 3}
   m_Name: 
@@ -1464,7 +1464,18 @@ MonoBehaviour:
   targetRenderer: {fileID: 1677088627}
   targetRawImage: {fileID: 0}
   useInsideSphereMaterial: 1
+  flipVideoHorizontally: 1
   centerSphereOnMainCamera: 1
+  compensateRobotHeading: 1
+  headingOdometryTopic: /odometry/filtered
+  headingCompensationSign: 1
+  headingTimeout: 1
+  showHeadingDiagnostics: 0
+  logHeadingDiagnostics: 0
+  rememberForwardCalibration: 1
+  beginCalibrationKey: 287
+  saveCalibrationKey: 288
+  showCalibrationPanel: 1
   startOnAwake: 1
   autoReconnect: 1
   reconnectDelay: 2
@@ -1852,6 +1863,8 @@ GameObject:
   m_Component:
   - component: {fileID: 1393487877}
   - component: {fileID: 1393487878}
+  - component: {fileID: 1393487900}
+  - component: {fileID: 1393487901}
   m_Layer: 0
   m_Name: katmanager
   m_TagString: Untagged
@@ -1888,7 +1901,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   cmdVelTopic: /cmd_vel
   odometryTopic: /odometry/filtered
-  maxForwardSpeed: 0.6
+  maxForwardSpeed: 0.4
   maxReverseSpeed: 0.2
   walkDeadZone: 0.02
   inputSpeedForMax: 1
@@ -1903,13 +1916,13 @@ MonoBehaviour:
   enableMoveSpeedPulseStepFallback: 1
   stepPulseThreshold: 0.08
   stepPulseHoldTime: 0.6
-  bodyToRosYawSign: -1
+  bodyToRosYawSign: 14.56
   turnRateDeadZoneDegPerSec: 6
   bodyYawFilterTime: 0.06
   turnRateSmoothingTime: 0.1
   turnRateForMaxOutput: 90
   turnResponseExponent: 1
-  maxAngularSpeed: 0.6
+  maxAngularSpeed: 0.5
   maxAcceptedBodyYawStepDeg: 45
   maxBodyTiltFromHorizontalDeg: 70
   enableRobotControl: 1
@@ -1926,9 +1939,110 @@ MonoBehaviour:
   activationKey: 116
   emergencyStopKey: 101
   reverseModeKey: 114
+  enableDebugLog: 0
+  debugLogInterval: 0.05
+  showStatusGUI: 0
+--- !u!114 &1393487900
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1393487875}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2dd89549f40e7d6f72603a0c68978333, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  controller: {fileID: 1393487878}
+  angleController: {fileID: 0}
+  headingSource: {fileID: 0}
+  keyboardController: {fileID: 0}
+  distanceFromCamera: 1.2
+  verticalOffset: -0.25
+  panelWidth: 0.6
+  panelHeight: 0.22
+  pixelsPerUnit: 800
+  refreshInterval: 0.1
+--- !u!114 &1393487901
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1393487875}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 202848d9a4e84e56bd2fdf1f802d674a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  cmdVelTopic: /cmd_vel
+  odometryTopic: /odometry/filtered
+  odometryTimeout: 0.5
+  katInputRecoveryGraceTime: 1
+  maxForwardSpeed: 0.8
+  maxReverseSpeed: 0.35
+  walkDeadZone: 0.02
+  inputSpeedForMax: 3
+  minDriveSpeed: 0.08
+  forwardStartRampInput: 0.02
+  responseExponent: 0.6
+  forwardAttackTime: 0
+  forwardReleaseTime: 0
+  enableStepInPlaceDrive: 1
+  stepInPlaceInput: 0.35
+  stepSignalHoldTime: 0.1
+  stepFootSpeedThreshold: 0.05
+  enableMoveSpeedPulseStepFallback: 1
+  stepPulseThreshold: 0.08
+  stepPulseHoldTime: 0.55
+  bodyToRosYawSign: -1
+  turnRateDeadZoneDegPerSec: 6
+  bodyYawFilterTime: 0.06
+  stepTurnFilterMultiplier: 1
+  turnRateSmoothingTime: 0.1
+  turnRateForMaxOutput: 90
+  turnResponseExponent: 1
+  openLoopMaxAngularSpeed: 1.5708
+  maxAngularSpeed: 1.6
+  turnAcceleration: 1.5
+  turnDeceleration: 3
+  headingKp: 1.2
+  nearHeadingKp: 0.4
+  headingSlowZoneDeg: 15
+  turnBrakingLookaheadTime: 0.35
+  maxHeadingCorrectionSpeed: 1.2
+  headingToleranceDeg: 2
+  maxHeadingErrorDeg: 120
+  turnProgressTimeout: 5
+  minimumTurnProgressDeg: 1
+  maxBodyYawRateDegPerSec: 720
+  maxAcceptedBodyYawStepDeg: 45
+  turnResyncGraceTime: 1
+  bodyYawRecoveryStableTime: 0.3
+  bodyYawRecoveryBandDeg: 3
+  maxBodyTiltFromHorizontalDeg: 70
+  enableRobotControl: 1
+  activationHand: 5
+  activationTriggerThreshold: 0.2
+  activationTriggerReleaseThreshold: 0.1
+  activationTriggerReleaseTime: 0.08
+  activationLatch: 1
+  startActivated: 0
+  emergencyStopHand: 5
+  emergencyStopLatch: 1
+  reverseModeHand: 5
+  reverseModeLatch: 1
+  publishRateHz: 20
+  enableKeyboardFallback: 0
+  activationKey: 116
+  emergencyStopKey: 101
+  reverseModeKey: 114
+  realignKey: 99
+  realignHand: 4
   enableDebugLog: 1
   debugLogInterval: 0.05
-  showStatusGUI: 1
+  showStatusGUI: 0
 --- !u!1 &1588281669
 GameObject:
   m_ObjectHideFlags: 0
@@ -2093,6 +2207,7 @@ GameObject:
   - component: {fileID: 1677088628}
   - component: {fileID: 1677088627}
   - component: {fileID: 1677088626}
+  - component: {fileID: 1677088700}
   m_Layer: 0
   m_Name: Insta360 360 Sphere
   m_TagString: Untagged
@@ -2178,14 +2293,40 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1677088625}
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalRotation: {x: 0, y: 0.7660445, z: -0, w: -0.6427876}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 4, y: 4, z: 4}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 7
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 260, z: 0}
+--- !u!114 &1677088700
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1677088625}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ea517d77e0b43ec9915d6647e46a7aba, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  anchor: {fileID: 0}
+  robotForwardYaw: 0
+  cameraHeightAboveGround: 0.8
+  mountForwardOffset: 0
+  mountLateralOffset: 0
+  footprintLength: 0.99
+  footprintWidth: 0.67
+  fillColor: {r: 0, g: 1, b: 1, a: 0.18}
+  lineColor: {r: 0, g: 1, b: 1, a: 0.85}
+  gridSpacing: 0.25
+  lineWidth: 0.015
+  borderWidth: 0.03
+  frontColor: {r: 0.3, g: 1, b: 0.2, a: 1}
+  frontBorderWidth: 0.05
 --- !u!1 &1811420203
 GameObject:
   m_ObjectHideFlags: 0
@@ -2219,8 +2360,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   topicName: /cmd_vel
-  linearSpeed: 0.5
-  angularSpeed: 0.8
+  linearSpeed: 0.4
+  angularSpeed: 0.6
 --- !u!65 &1811420205
 BoxCollider:
   m_ObjectHideFlags: 0

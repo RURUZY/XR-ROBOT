@@ -56,7 +56,7 @@ public class KatHuskyDirectController : MonoBehaviour
     public string odometryTopic = "/odometry/filtered";
 
     [Header("Forward channel (independent of turn)")]
-    public float maxForwardSpeed = 0.6f;
+    public float maxForwardSpeed = 0.4f;
     public float maxReverseSpeed = 0.20f;
     public float walkDeadZone = 0.02f;
     public float inputSpeedForMax = 1.0f;
@@ -86,7 +86,7 @@ public class KatHuskyDirectController : MonoBehaviour
     [Tooltip("Filtered body yaw rate that maps to maxAngularSpeed. Calibrate from the KAT DIRECT debug log: watch filteredYawRateDegPerSec while turning at a comfortable brisk pace and set this near that peak.")]
     public float turnRateForMaxOutput = 90f;
     [Range(0.3f, 1f)] public float turnResponseExponent = 1f;
-    public float maxAngularSpeed = 0.6f;
+    public float maxAngularSpeed = 0.5f;
     [Tooltip("Reject a single KAT heading jump larger than this (quaternion/Euler discontinuity) instead of letting it spike the turn rate for one tick.")]
     public float maxAcceptedBodyYawStepDeg = 45f;
     [Tooltip("Reject the body yaw reading when the KAT body sensor tilts more than this many degrees from horizontal. This only holds/decays the turn channel -- it never stops forward.")]
@@ -111,9 +111,20 @@ public class KatHuskyDirectController : MonoBehaviour
     public KeyCode reverseModeKey = KeyCode.R;
 
     [Header("Diagnostics")]
-    public bool enableDebugLog = true;
+    public bool enableDebugLog = false;
     public float debugLogInterval = 0.05f;
-    public bool showStatusGUI = true;
+    [Tooltip("Legacy IMGUI debug overlay. Not stereo-aware -- in a VR headset it gets drawn once per eye and shows up as doubled/ghosted text. Fine for flat desktop/Editor testing; leave off for real headset testing and use KatStatusHud instead.")]
+    public bool showStatusGUI = false;
+
+    // Read-only accessors for KatStatusHud (or any other VR-safe display) --
+    // OnGUI below is not stereo-safe, this is the same data without that
+    // problem.
+    public string Status => status;
+    public float FilteredYawRateDegPerSec => filteredYawRateDegPerSec;
+    public float LastPublishedLinear => lastPublishedLinear;
+    public float LastPublishedAngular => lastPublishedAngular;
+    public float RobotYawDeg => robotYawDeg;
+    public bool HasOdometry => hasOdometry;
 
     private ROSConnection ros;
 

@@ -1,0 +1,88 @@
+[
+  {
+    "file": "husky_reverse_check_2026-09-07-17-38-48.bag",
+    "bytes": 4156262,
+    "sha256": "039d71d86bddcbb4bd5fb002d6e404d11de6584e53a94f2d83c82041b510e82a",
+    "duration_seconds": 39.859930886,
+    "topic_counts": {
+      "/odometry/filtered": 1994,
+      "/tf_static": 1,
+      "/tf": 2392,
+      "/husky_velocity_controller/cmd_vel_out": 399,
+      "/joint_states": 399,
+      "/husky_velocity_controller/odom": 399,
+      "/cmd_vel": 8854,
+      "/husky_velocity_controller/cmd_vel": 6369
+    },
+    "yaw_change_degrees_unwrapped": {
+      "/odometry/filtered": 19.058860876246968,
+      "/husky_velocity_controller/odom": 19.219046807004446
+    },
+    "command_ranges": {
+      "/husky_velocity_controller/cmd_vel_out": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      },
+      "/cmd_vel": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      },
+      "/husky_velocity_controller/cmd_vel": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      }
+    },
+    "encoder_overflow_drop_log_count": 0,
+    "travel_first": null,
+    "travel_last": null
+  },
+  {
+    "file": "husky_reverse_debug_2026-09-07-18-00-24.bag",
+    "bytes": 3150934,
+    "sha256": "4474333b17fbc0c34a345e89d255d012d44e34723199927d8a2c2a06475cfa16",
+    "duration_seconds": 33.148348598,
+    "topic_counts": {
+      "/rosout": 692,
+      "/odometry/filtered": 1650,
+      "/joint_states": 330,
+      "/husky_velocity_controller/cmd_vel_out": 330,
+      "/husky_velocity_controller/odom": 330,
+      "/status": 33,
+      "/cmd_vel": 6089,
+      "/husky_velocity_controller/cmd_vel": 4143
+    },
+    "yaw_change_degrees_unwrapped": {
+      "/odometry/filtered": 198.0230874780294,
+      "/husky_velocity_controller/odom": 197.89194017295858
+    },
+    "command_ranges": {
+      "/husky_velocity_controller/cmd_vel_out": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      },
+      "/cmd_vel": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      },
+      "/husky_velocity_controller/cmd_vel": {
+        "linear_x_min": -0.5,
+        "linear_x_max": 0.0,
+        "angular_z_max_abs": 0.0
+      }
+    },
+    "encoder_overflow_drop_log_count": 0,
+    "travel_first": {
+      "seconds": 0.179800208,
+      "message": "Received travel information (L:11.275 R:25.776)"
+    },
+    "travel_last": {
+      "seconds": 33.08035774,
+      "message": "Received travel information (L:3.003 R:24.897)"
+    }
+  }
+]

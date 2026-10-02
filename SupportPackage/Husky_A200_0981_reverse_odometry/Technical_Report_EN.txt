@@ -1,0 +1,141 @@
+Husky A200 reverse odometry anomaly
+Technical support request prepared 7 September 2026
+
+SUMMARY
+Please help diagnose a direction-dependent wheel-travel feedback anomaly on a Husky A200 running ROS 1 Noetic. During commanded straight reverse, the operator observes no noticeable physical heading change, but wheel odometry reports substantial positive yaw. The fused odometry follows it, causing a Unity panoramic viewer to rotate incorrectly. Right-side accumulated travel nearly stops decreasing, or increases slightly, while both reported side speeds remain negative.
+
+This report does not establish a defective encoder or a confirmed firmware bug. The observation of physical heading is visual, not an independent instrumented measurement. No raw serial packet capture or encoder electrical measurements are available.
+
+ROBOT AND SOFTWARE
+- Hostname: cpr-a200-0981.
+- Product: Husky A200. A200-0981 is inferred from hostname; confirm the chassis serial label before submission.
+- ROS distribution: Noetic (ROS 1).
+- husky_base: 0.6.11; package path /opt/ros/noetic/share/husky_base.
+- Ubuntu release, kernel, MCU firmware version, institution/project reference and requester contact details: not yet supplied.
+- /husky_node publishes both /joint_states and /husky_velocity_controller/odom.
+- /twist_mux is the subscriber connection's upstream publisher of /husky_velocity_controller/cmd_vel.
+
+USER OBSERVATIONS AND REPRODUCTION
+The operator reports forward travel is visually satisfactory, whereas reverse produces persistent leftward apparent camera/view drift. The operator reports the chassis itself does not visibly turn. Disabling the Unity odometry-based panorama correction removes this apparent drift but breaks robot-forward alignment when the robot turns.
+Unity uses the orientation quaternion in /odometry/filtered to compute relative yaw and rotate the panorama; the diagnostic yaw-rate conversion from radians/s to degrees/s is for display only. The problem is therefore investigated at the upstream motion/feedback layer.
+The attached bag files contain reverse commands and stationary periods, with no positive linear commands captured. They cannot independently establish normal forward operation or low-speed behavior. Those conditions should not be inferred from these recordings.
+
+RECORDING 1
+File: husky_reverse_check_2026-09-07-17-38-48.bag
+Duration: 39.860 seconds.
+- /cmd_vel, /husky_velocity_controller/cmd_vel and cmd_vel_out all have angular.z = 0 throughout their recorded samples.
+- Linear commands range from -0.5 to 0 m/s.
+- Wheel odometry net yaw change: +19.219 degrees.
+- Fused odometry net yaw change: +19.059 degrees.
+- From approximately 27.12 to 27.72 seconds, left joint position decreases from 38.4252 to 34.7729 rad while right joint position increases from 116.9776 to 117.2441 rad. Reported velocities for all four joints remain approximately -6.0569 rad/s over this interval. Front/rear values on the same side are identical in these messages; they are not four independent corroborating measurements.
+- /imu/data was requested during recording but no IMU messages were captured.
+
+RECORDING 2 WITH DRIVER DEBUG ENABLED
+File: husky_reverse_debug_2026-09-07-18-00-24.bag
+Duration: 33.148 seconds.
+ros.husky_base logging was enabled at DEBUG. The bag contains 660 /husky_node log messages: decoded travel and differential-speed messages. There are zero occurrences of 'Dropping overflow measurement from encoder'.
+- All three command topics again report angular.z = 0 throughout.
+- Wheel odometry unwrapped net yaw change: +197.892 degrees.
+- Fused odometry unwrapped net yaw change: +198.023 degrees.
+- Decoded travel starts at L=11.275 m, R=25.776 m and ends at L=3.003 m, R=24.897 m. Changes are L=-8.272 m and R=-0.879 m.
+
+Representative decoded feedback, time relative to bag start:
+  12.082118 s  Received travel information (L:11 R:25.589)
+  12.091870 s  Received linear speed information (L:-1 R:-1)
+  12.378801 s  Received travel information (L:10.71 R:25.603)
+  12.389901 s  Received linear speed information (L:-1 R:-1)
+  12.675861 s  Received travel information (L:10.416 R:25.614)
+  12.686641 s  Received linear speed information (L:-1 R:-1)
+
+These debug statements expose values already decoded by the host driver, not raw wire bytes. They show the inconsistency before the driver's joint-position delta/overflow filter. A parser, firmware, sensor or electrical cause remains possible.
+
+CONFIGURATION PROVIDED BY OPERATOR
+/husky_node:
+  control_frequency: 10.0
+  diagnostic_frequency: 1.0
+  max_acceleration: 3.0
+  max_speed: 1.0
+  polling_timeout: 10.0
+  port: /dev/prolific
+  wheel_diameter: 0.3302
+
+/husky_velocity_controller:
+  type: diff_drive_controller/DiffDriveController
+  left_wheel: [front_left_wheel, rear_left_wheel]
+  right_wheel: [front_right_wheel, rear_right_wheel]
+  wheel_radius_multiplier: 0.5
+  left_wheel_radius_multiplier: 0.5
+  right_wheel_radius_multiplier: 0.5
+  wheel_separation_multiplier: 1.875
+  cmd_vel_timeout: 0.25
+  publish_rate: 50.0
+  publish_cmd: true
+  enable_odom_tf: false
+  velocity_rolling_window_size: 2
+  linear.x: velocity limits enabled, max_velocity 1.0 m/s;
+            acceleration limits enabled, max_acceleration 3.0 m/s^2
+  angular.z: velocity limits enabled, max_velocity 2.0 rad/s;
+             acceleration limits enabled, max_acceleration 6.0 rad/s^2
+  pose_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.03]
+  twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.03]
+
+The provenance of the 0.5 radius multipliers has not been established. We have not changed them during this investigation. The standard public Noetic control.yaml uses a 1.0 radius multiplier, but the actual robot model/configuration should be verified before any correction. The -0.5 m/s command versus -1 m/s speed feedback is consistent with a possible factor-of-two conversion; this is not a ground-truth measurement of actual travel speed.
+
+/ekf_localization:
+  frequency: 50
+  two_d_mode: true
+  predict_to_current_time: true
+  base_link_frame: base_link
+  odom_frame: odom
+  world_frame: odom
+  odom0: husky_velocity_controller/odom
+  odom0_config: [false,false,false, false,false,false, true,true,true, false,false,true, false,false,false]
+  odom0_differential: false
+  odom0_queue_size: 10
+  imu0: imu/data
+  imu0_config: [false,false,false, true,true,true, false,false,false, true,true,true, false,false,false]
+  imu0_differential: true
+  imu0_queue_size: 10
+  imu0_remove_gravitational_acceleration: true
+
+IMU availability:
+  rostopic info /imu/data reports Publishers: None and subscriber /ekf_localization.
+  No obvious IMU driver node is listed in rosnode list.
+  /dev/clearpath/ is empty and the queried HUSKY_IMU_ENABLED, HUSKY_IMU_MODEL and HUSKY_IMU_PORT variables are unset in the interactive shell. This does not prove the physical IMU is absent or that service environment variables are unset.
+
+Separate /status snapshot supplied by operator:
+  ros_control_loop_freq: 9.992682558416123
+  battery_voltage: 23.17
+  left_driver_current: 0.59; right_driver_current: 0.59
+  left_driver_voltage: 21.29; right_driver_voltage: 21.03
+  left_driver_temp: 26.3; right_driver_temp: 32.42
+  left_motor_temp: 20.18; right_motor_temp: 20.92
+  timeout, lockout, e_stop, ros_pause, no_battery, current_limit: all false
+This snapshot does not exclude transient faults during motion. /status is included in the debug bag.
+
+SOURCE REVIEW AND LIMITS
+The upstream 0.6.11 driver logs decoded travel before updating joint positions. It rejects absolute per-update position deltas of 1 rad or more. No rejection messages were captured in the debug reproduction. Normal 10 Hz operation at 6.06 rad/s gives roughly 0.61 rad per cycle, below that threshold. We have not patched the driver or changed this threshold.
+The host parser reads left/right travel from the same encoder message structure using indexed fields. No confirmed direction-specific parser defect has been demonstrated. Identifying the installed binary's exact build/patch provenance may still be necessary.
+
+REQUESTED SUPPORT ACTIONS
+1. Check for known A200 reverse encoder-travel/firmware issues matching this evidence and advise how to obtain the installed MCU firmware identifier.
+2. Specify safe checks for the right-side encoder, harness and counting channels, including whether a technician inspection is recommended.
+3. Advise how to capture raw encoder ticks or serial payloads through a supported method, without opening a second competing connection to /dev/prolific.
+4. Confirm the correct wheel radius multipliers for this robot and how to restore them persistently if 0.5 is incorrect.
+5. Confirm whether an IMU was supplied on this unit and how to restore its ROS 1 driver if present.
+6. Recommend a repair and validation procedure that preserves correct real turn tracking; we do not want to hide the defect by freezing reverse heading or substituting commanded turns for measured turns.
+
+REFERENCES
+Support and ROS 1 bag submission guidance:
+https://docs.clearpathrobotics.com/docs_robots/legacy/ros1_robots/outdoor_robots/husky/troubleshooting_husky/
+Support request form:
+https://support.clearpathrobotics.com/hc/en-us/requests/new
+Driver source, tag 0.6.11:
+https://github.com/husky/husky_robot/blob/0.6.11/husky_base/src/husky_hardware.cpp
+Parser source, tag 0.6.11:
+https://github.com/husky/husky_robot/blob/0.6.11/husky_base/src/horizon_legacy/Message_data.cpp
+Reference Noetic control configuration (branch may change):
+https://github.com/husky/husky/blob/noetic-devel/husky_control/config/control.yaml
+
+ATTACHMENTS
+Two original ROS 1 bag files; analysis_summary.json with topic counts, numeric summaries and SHA-256 hashes; husky_node_debug_log.txt with extracted driver logs. All elapsed times use bag record timestamps, not a claim of perfectly synchronized hardware timestamps. Yaw totals are unwrapped to handle crossing +/-180 degrees.

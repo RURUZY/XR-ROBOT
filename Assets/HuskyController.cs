@@ -13,6 +13,9 @@ public class CmdVelPublisher : MonoBehaviour
     public float angularSpeed = 0.8f;  // rad/s
 
     private ROSConnection ros;
+    public float LastPublishedLinear { get; private set; }
+    public float LastPublishedAngular { get; private set; }
+    public float LastPublishedTime { get; private set; } = -1f;
 
     void Start()
     {
@@ -48,5 +51,8 @@ public class CmdVelPublisher : MonoBehaviour
 
         // Publish to ROS2
         ros.Publish(topicName, cmdVel);
+        LastPublishedLinear = (float)cmdVel.linear.x;
+        LastPublishedAngular = (float)cmdVel.angular.z;
+        LastPublishedTime = Time.realtimeSinceStartup;
     }
 }

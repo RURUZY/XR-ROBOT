@@ -1,0 +1,27 @@
+To: support@clearpathrobotics.com
+Subject: Husky A200 reverse encoder travel anomaly causes false yaw - ROS Noetic / husky_base 0.6.11
+
+Hello Clearpath Support,
+
+We are requesting assistance with a Husky A200 (hostname cpr-a200-0981; chassis serial to be confirmed). During straight reverse commands, the operator observes no noticeable chassis turn, but the wheel odometry reports substantial leftward yaw. This causes our odometry-compensated panoramic viewer to rotate incorrectly.
+
+The attached recordings show:
+- Zero angular.z on /cmd_vel, the controller input, and cmd_vel_out.
+- In the debug reproduction, left accumulated travel changes by -8.272 m while right travel changes by only -0.879 m. Both reported side speeds reach -1 m/s.
+- Wheel and fused odometry accumulate approximately +198 degrees of yaw in that recording.
+- Driver DEBUG logs already contain the inconsistent decoded right-side travel, with no encoder-overflow drop messages.
+- /imu/data currently has no publisher, although the EKF is configured to use it.
+
+The system runs ROS 1 Noetic and husky_base 0.6.11. Wheel diameter is 0.3302 m, the control loop is approximately 10 Hz, and left/right wheel radius multipliers are both 0.5. We have not established why these multipliers were configured that way. The recorded reverse command reaches -0.5 m/s.
+
+Could you review the attached report and bags, advise whether this matches a known encoder/firmware issue, and provide the recommended right-side feedback inspection and repair procedure? Please also confirm the correct radius calibration and IMU setup for this unit. We have not confirmed a hardware defect and have not patched the driver or firmware.
+
+Attachments: Husky_A200_0981_reverse_odometry_support.zip (report, two original bags, extracted debug logs and numeric summary).
+
+Robot serial from chassis label: [please fill in]
+Institution / project or order reference: [please fill in]
+Ubuntu release and kernel: [please fill in; run lsb_release -ds and uname -r]
+Requester name and contact: [please fill in]
+
+Thank you,
+[Your name]

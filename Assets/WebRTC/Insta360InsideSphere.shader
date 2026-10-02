@@ -3,6 +3,7 @@ Shader "Insta360/Inside Sphere"
     Properties
     {
         _MainTex ("360 Video", 2D) = "black" {}
+        [Toggle] _FlipHorizontal ("Flip Horizontal", Float) = 1
     }
 
     SubShader
@@ -43,6 +44,7 @@ Shader "Insta360/Inside Sphere"
 
             sampler2D _MainTex;
             float4 _MainTex_ST;
+            float _FlipHorizontal;
 
             VertexToFragment vert(AppData input)
             {
@@ -58,7 +60,10 @@ Shader "Insta360/Inside Sphere"
             fixed4 frag(VertexToFragment input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
-                return tex2D(_MainTex, input.uv);
+                float2 uv = input.uv;
+                if (_FlipHorizontal > 0.5)
+                    uv.x = 1.0 - uv.x;
+                return tex2D(_MainTex, uv);
             }
             ENDCG
         }

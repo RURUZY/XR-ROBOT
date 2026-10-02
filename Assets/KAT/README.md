@@ -1,5 +1,7 @@
 # KAT Husky 闭环控制 —— 工作记录
 
+当前 DirectAngle 配置与测试请优先看 [DirectAngle-测试说明.md](DirectAngle-测试说明.md) 顶部。已删除“转速较大时关闭踏步补偿”的规则；下方关于该规则以及转向倍率 2、最低转向指令 0.25 的记录为历史方案，不再适用。
+
 记录到：2026-08-14。这份文件是给"下次打开项目忘了做到哪"的自己看的，不是最终文档，随时改。
 
 ## 这个目录在做什么
@@ -10,6 +12,7 @@
 
 | 文件 | 状态 | 说明 |
 |---|---|---|
+| [`KatHuskyDirectAngleController.cs`](KatHuskyDirectAngleController.cs) | **2026-09-13 新建，场景当前实际挂载且启用的版本** | 从 Direct 分支出来的"身体转角 1:1"版本：前进沿用 Direct，转向改成拿 `/odometry/filtered` 对累计转角做闭环纠偏（不是回到旧的实时位置闭环手感，目标角本身是开环累积的）。2026-09-13 第二轮修了转向漂移和 360° 不跟随，改动依据和实测数据见 [`DirectAngle-测试说明.md`](DirectAngle-测试说明.md)。 |
 | [`KatHuskyDirectController.cs`](KatHuskyDirectController.cs) | **2026-08-14 新建，未接入场景** | 开环双通道版本：前进只看踏步/滑动强度，转弯只看身体转动**速率**（不再积分成目标航向），两个通道互不读对方的值，也不读里程计。里程计仅做 GUI/日志参考。详见下面"2026-08-14"整节。 |
 | [`KatHuskySettleAnchorController.cs`](KatHuskySettleAnchorController.cs) | **场景当前实际挂载的版本** | 2026-08-10 新建。用 `/odometry/filtered` 做闭环航向、加了"settle anchoring"防漂移机制、转弯时会给前进降速、走路时会给转弯打折。2026-08-14 排查"做不到前进+转弯"问题时，判断这几处耦合就是根因，因此另开了 `KatHuskyDirectController.cs`，这个文件本身没有被动过。 |
 | [`KatHuskyClosedLoopController.cs`](KatHuskyClosedLoopController.cs) | 保留作参考基线，**没有被使用** | 2026-08-05 定型后没再改过。 |
@@ -69,8 +72,17 @@ lastRawForward = new Vector2(lastRawMoveSpeed.x, lastRawMoveSpeed.z).magnitude;
 4. 顺带发现一次测试里 `reverseModeEnabled` 全程是开着的（`Linear` 全程为负、`RawFwd` 却是正的，数值反推和 `maxReverseSpeed` 上限吻合）——不是代码 bug，是倒退模式锁存开关被误触发，评估手感前记得先看屏幕左上角状态文字有没有写 "REVERSE"。
 5. **场景里还没接这个新控制器**（见上面"关键文件"表格）——下次真正上机测试前记得先手动挂 `KatHuskyDirectController`、关掉键盘的 `CmdVelPublisher`。
 
+## 2026-08-15：真机测试观察 + OnGUI 换成 World Space HUD
+
+真机(Quest 3)测试时发现 `KatHuskyDirectController.OnGUI()` 那个调试面板在头显里文字重影/乱码——排查是 legacy IMGUI 不支持立体渲染，每只眼各触发一次绘制导致的，不是场景配置问题。已经用新的 `Assets/WebRTC/KatStatusHud.cs`（World Space Canvas，跟着 Main Camera）替代，`showStatusGUI` 默认值改成了 `false`（`OnGUI` 代码还在，留给桌面调试用）。详细过程和另一个同批加的车身参照物功能记在 [`Insta360-联调记录-2026-08-14.md`](../../Insta360-联调记录-2026-08-14.md) 里，因为那次改动主要是在 `Assets/WebRTC/` 那边。
+
+同一次测试 Console 里连续出现几条 `[KAT DIRECT] Rejected body yaw jump`，跳变幅度都在 135°~139° 附近、正负交替，还没确认是当时真的在快速转圈（正常触发）还是传感器本身有问题——下次测试时留意一下触发那几秒实际在做什么动作。
+
 ## 待办 / 下次接着看
 
+- [ ] 确认 `Rejected body yaw jump`（135°~139° 附近连续出现）是真实快速转圈触发的，还是传感器异常
+- [ ] **避障**：2026-08-14 讨论过，暂不做。先要确认 Husky 上有没有已经在跑 Clearpath OutdoorNav（`docker ps -a` 查容器、`/etc/clearpath/robot.yaml` 查配置、`ros2/rostopic topic list` 查 costmap/nav 相关话题）以及有没有装雷达/深度传感器。如果 OutdoorNav 本来就在跑，应该考虑让它的安全层去限制/否决 `/cmd_vel`，而不是在 KAT 控制器里重新写一套；如果确认没有任何现成东西，才需要从传感器接入开始从零做。
+- [ ] **航向纠偏**：2026-08-14 讨论过，用户还没决定要不要做。背景——`KatHuskyDirectController.cs` 是纯开环速率控制，故意没有闭环航向，所以长时间使用后"跑步机上的前方"会和"机器人实际朝向"慢慢对不上，且没有任何机制去修正。讨论过三种可能方向：① 独立按键手动校准（类似旧版 `recalibrateKey`，按一下把当前身体朝向重新定义为"机器人当前前方"，不引入闭环）；② 给操作者视觉/听觉提示当前偏差角度，人自己纠正；③ 引入一个非常缓慢（数十秒量级）的自动微调，避免重新引入之前拿掉的实时闭环那种拖尾感。三个都还没做，等用户想清楚要哪个（或者都不要）再动手。
 - [ ] `KatHuskyDirectController.cs` 挂到场景里实机测试（forward-only / turn-only / 边走边转 / 松开立即停 四种场景分别验证）
 - [ ] 决定 `MiniSExtraData.cs` 的 `MarshalAs` 修复要不要应用；应用后重新采集一次数据，看 `isLeftGround`/`motionType`/`skatingSpeed` 是否还是恒零——如果修复后仍然全零，才能真正确认是硬件/固件不支持，而不是解析问题
 - [ ] 标定 `turnRateForMaxOutput`（当前 90°/s 是拍的默认值，没有实测校准）
@@ -80,3 +92,20 @@ lastRawForward = new Vector2(lastRawMoveSpeed.x, lastRawMoveSpeed.z).magnitude;
 - [ ] 考虑把项目纳入正常的 git 版本管理（当前 `.git` 是空的），至少定期 commit，避免再靠文件时间戳猜历史
 - [x] 踏步信号已接入前进逻辑：Walk Mini S 使用 `MiniSExtraData.isMoving`；Walk C2（SDK 设备名含 `Coord2`）使用其正确的 `WalkC2ExtraData` 布局，以 `motionType` 的 MICROACTION/MOVE 或双脚水平速度检测踏步。检测后生成可配置的合成前进输入。场景默认 `enableStepInPlaceDrive=true`、`stepInPlaceInput=0.35`、`stepSignalHoldTime=0.15s`、`stepFootSpeedThreshold=0.05`；原有死区、速度曲线、转向降速、反向开关和安全停止仍然有效。
 - [x] 实机日志确认 `KATVR Pro Mini(S)` 的 `extraData` 在当前 Runtime/SDK 组合下持续全零，因此增加控制器层的 `moveSpeed` 脉冲踏步回退：超过 `stepPulseThreshold=0.08` 的短促速度视为一步，并保持前进意图 `stepPulseHoldTime=0.60s`；连续左右踏步会不断刷新，停止踏步后自动超时停车。边走边转时最低前进比例提高到 0.75。
+
+## 2026-09-13：转向漂移 / 360° 不跟随（DirectAngle 第二轮）
+
+场景挂载状态**已经变了**，上面"关键文件"表格和 2026-08-14 那节里"场景里没有挂载任何 KAT 控制器"的说法已过期。核对 `MainScene.unity` 的实际结果：`KatHuskyDirectAngleController` 已挂在 `katmanager` 上且 `m_Enabled: 1`；`KatHuskyDirectController` 已挂但禁用；键盘 `CmdVelPublisher`（`HuskyController.cs`）已禁用。同一时刻只有 DirectAngle 在发 `/cmd_vel`。
+
+这轮处理两个反馈：转弯角度对不上/有点飘、原地转 360° 时 husky 基本不跟着转。完整的证据链、每条改动的理由、需要手动改的 Inspector 值和上机验证顺序都写在 [`DirectAngle-测试说明.md`](DirectAngle-测试说明.md) 的"2026-09-13 第二轮"一节，这里只留三条最该记住的：
+
+- **实测这台车只转到命令值的 0.41~0.47 倍**（`SupportPackage/husky_all_2026-09-11-00-09-19.bag` 四段稳态命令，方向和前后都一致）。原来 `maxAngularSpeed=0.5` 的实际上限只有约 12.7°/s，转满一圈要 28 秒——"360° 不跟随"首先是物理追不上，不是逻辑丢角度。以后调这个参数前先想一遍这个 0.45 倍。
+- **原来任何瞬态都会把转向通道锁死到本次会话结束**（里程计过期、EKF/frame 跳变、body yaw 跳变、姿态无效都置 `turnNeedsRealign`，而自动标定要求 `!turnNeedsRealign`，只有手动按 C 才解除）。现在全部改成自恢复：短中断保留待转角度、长中断重新锚定，`turnNeedsRealign` 已删除。
+- **转向通道的滤波确实是"飘"的来源**：`bodyYawFilterTime=0.04s` 对整度量化角求导，一个 1° 抖动就能产生 20°/s、越过 6°/s 死区后变成 0.34 rad/s 的前馈。已改为 0.18s + 踏步时再乘 2 + 死区 10°/s，目标角也改用滤波后的累积角。另外原地转身必然挪脚，合成踏步前进量会让车画弧而不是原地转，已加 `stepDriveTurnSuppressionDegPerSec` 只压制合成量。
+
+⚠️ **一个还没结论的疑点，会影响"1:1"的真实含义**：同一段转弯用轮编码器行程反推约 ±180°，而 `/odometry/filtered` 和轮式 `odom` 都只报 ±85~89°，差约 2 倍。本控制器是拿里程计做反馈的，所以它保证的是"和里程计认为的偏航 1:1"；如果里程计偏航缩放本身不对，误差归零时车身实际转的角度还是不对。判定必须用外部固定机位拍已知角度（地面画 90°/180° 再对比），在 Unity 这边看不出来。这条和 `ReverseDrift_2026-09-10.md` 里"轮反馈异常 → 虚假偏航"的记录可能是同一个根。
+
+待办追加：
+- [ ] 上机验证 DirectAngle 第二轮（按测试说明里四步：原地踏步不抖 / 慢转 90° 收敛 / 快转 360° 能补齐 / 边走边转不被误压制）
+- [ ] 手动把场景里三个旧序列化值改成新默认（Max Angular Speed 1、Body Yaw Filter Time 0.18、Turn Rate Dead Zone 10）——改代码默认值不会覆盖已序列化的值
+- [ ] 用地面标记实测"里程计偏航 vs 真实车身转角"的比例，决定要不要在控制器里补一个标定系数
