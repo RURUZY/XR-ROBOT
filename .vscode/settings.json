@@ -68,5 +68,6 @@
         "*.slnx": "*.csproj"
     },
     "dotnet.defaultSolution": "New Unity Project.slnx",
-    "dotnet.enableWorkspaceBasedDevelopment": false
+    "dotnet.enableWorkspaceBasedDevelopment": false,
+    "cmake.sourceDirectory": "D:/unity/thesis/New Unity Project/Deployment/HuskyInsta360"
 }

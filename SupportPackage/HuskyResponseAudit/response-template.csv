@@ -1,0 +1,10 @@
+trial_id,source,heading_mode,repeat,surface_payload,unity_session,ros_bag,video_file,sync_offset_s,sync_uncertainty_s,requested_linear_mps,requested_angular_radps,chassis_linear_mps,chassis_angular_radps,response_delay_s,steady_linear_external_mps,steady_linear_odom_mps,steady_yaw_external_degps,steady_yaw_odom_degps,stop_distance_external_m,stop_extra_yaw_external_deg,notes
+stationary_01,,,,,,,,,,,,,,,,,,,,,
+forward_01,,,,,,,,,,,,,,,,,,,,,
+reverse_01,,,,,,,,,,,,,,,,,,,,,
+left_01,,,,,,,,,,,,,,,,,,,,,
+right_01,,,,,,,,,,,,,,,,,,,,,
+stop_command_01,,,,,,,,,,,,,,,,,,,,,
+stop_steps_01,,,,,,,,,,,,,,,,,,,,,
+reverse_direction_01,,,,,,,,,,,,,,,,,,,,,
+kat_change_heading_01,,,,,,,,,,,,,,,,,,,,,

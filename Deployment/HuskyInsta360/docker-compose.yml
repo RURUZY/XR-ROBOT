@@ -19,6 +19,11 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display,video
       __EGL_VENDOR_LIBRARY_FILENAMES: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
       __GLX_VENDOR_LIBRARY_NAME: nvidia
+      # FlowState stays on (the realtime stitcher crashes without it). Only the
+      # gyro axis the robot pivots about (z) is hidden from it, so it keeps
+      # removing shake but never turns the heading, which Unity compensates.
+      # "xyz" hides all axes (no stabilization); INSTA360_ZERO_GYRO "0" hides none.
+      INSTA360_GYRO_ZERO_AXES: "z"
     volumes:
       - type: bind
         source: /tmp/.X11-unix

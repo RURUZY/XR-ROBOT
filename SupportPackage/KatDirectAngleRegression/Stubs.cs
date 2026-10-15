@@ -8,7 +8,7 @@ using RosMessageTypes.Geometry;
 // source is compiled unchanged; no KAT, Unity scene or ROS connection is opened.
 namespace UnityEngine
 {
-    public class MonoBehaviour { public bool isActiveAndEnabled = true; }
+    public class MonoBehaviour { public bool isActiveAndEnabled = true; public static T[] FindObjectsOfType<T>() => Array.Empty<T>(); }
     public class DisallowMultipleComponent : Attribute {}
     public class HeaderAttribute : Attribute { public HeaderAttribute(string s) {} }
     public class TooltipAttribute : Attribute { public TooltipAttribute(string s) {} }

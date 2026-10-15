@@ -143,11 +143,21 @@ public class KatStatusHud : MonoBehaviour
             ? (angleController.HasFreshOdometry ? $"{angleController.RobotYawDeg:F1}°" : "UNAVAILABLE")
             : headingSource != null && headingSource.HasFreshHeading
             ? $"{headingSource.RobotHeadingDeg:F1}°" : "UNAVAILABLE";
-        statusText.text = $"Robot heading (odom): {heading}\nMode: {mode}";
+        statusText.text = $"Estimated heading: {heading}\n{mode}";
         if (angleActive)
-            statusText.text += angleController.HeadingCalibrated && angleController.HasFreshOdometry
-                ? $"\nTurn (ROS): target {angleController.TargetTurnDeg:F1}° / robot {angleController.RobotTurnDeg:F1}°\nError: {angleController.HeadingErrorDeg:F1}°\nTurn demand: input {angleController.LiveTurnDemand:F2} / correction {angleController.CorrectionTurnDemand:F2} rad/s"
-                : "\nTurn: " + angleController.TurnStatus;
+        {
+            if (angleController.IsControlActive && angleController.HasUsableHeading)
+            {
+                double error = angleController.HeadingErrorDeg;
+                string direction = System.Math.Abs(error) <= angleController.headingToleranceDeg ? "ALIGNED"
+                    : (error > 0 ? "LEFT " : "RIGHT ") + System.Math.Abs(error).ToString("F0") + "° TO TARGET";
+                statusText.text += "\n" + direction
+                    + $" | Drive command {angleController.LastPublishedLinear:F2} m/s"
+                    + $"\n{angleController.ForwardAssistStatus} ({angleController.ForwardSpeedMultiplier:P0})";
+            }
+            else statusText.text += "\nTurn: " + angleController.TurnStatus;
+        }
+        if (headingSource != null) statusText.text += "\n" + headingSource.HeadingAlignmentStatus;
     }
 
     private void OnEnable() { if (hudRoot != null) hudRoot.SetActive(true); }

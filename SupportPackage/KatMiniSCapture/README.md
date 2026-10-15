@@ -1,5 +1,9 @@
 # KAT Walk mini S 数据采集包
 
+2026-10-10 更新：采集器已增加控制链事件、底盘 TwistStamped 输出和里程计记录。当前字段及使用说明以 `Assets/KAT/Editor/KatPlayCapture.README.md` 为准；每个新采集包也会附上该文件。下文是原始 KAT 普通接口采集说明。
+
+离线生命周期检查：`dotnet run --project SupportPackage/KatMiniSCapture/Tests.csproj`。使用引擎、SDK、ROS 替身验证 Play/暂停/退出、最终发零记录、带源时间戳的底盘反馈、重复 Play 不重复订阅、CSV/ZIP 输出；结果只写入本目录 `test-output/SYNTHETIC_...`，不连接设备。控制器故障与采集错误隔离测试在 `SupportPackage/KatDirectAngleRegression/Tests.csproj`。
+
 本工具读取当前项目 KAT Universal SDK 的普通查询接口，将 KAT 数据保存为 CSV、JSON，停止后生成 ZIP。不是 ROS bag，不需要 ROS 或 Python。随 Windows Unity Editor 的 Play 启停，依赖已安装的 KAT Runtime 和项目 SDK DLL。
 
 **完全排除 extraData：不解析、不保存、不据此生成落脚标签。** 原生返回结构必须为该区域保留空间以保持接口内存布局，但采集代码不会访问其中内容。

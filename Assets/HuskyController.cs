@@ -13,6 +13,7 @@ public class CmdVelPublisher : MonoBehaviour
     public float angularSpeed = 0.8f;  // rad/s
 
     private ROSConnection ros;
+    private long controlInputSequence;
     public float LastPublishedLinear { get; private set; }
     public float LastPublishedAngular { get; private set; }
     public float LastPublishedTime { get; private set; } = -1f;
@@ -33,6 +34,8 @@ public class CmdVelPublisher : MonoBehaviour
         // A/D -> turn left/right
         float moveInput = Input.GetAxis("Vertical");
         float turnInput = Input.GetAxis("Horizontal");
+        controlInputSequence++;
+        HuskyControlTrace.Record("keyboard_input", "Keyboard", topicName, controlInputSequence, moveInput, turnInput);
 
         TwistMsg cmdVel = new TwistMsg();
 
@@ -51,6 +54,8 @@ public class CmdVelPublisher : MonoBehaviour
 
         // Publish to ROS2
         ros.Publish(topicName, cmdVel);
+        HuskyControlTrace.Record("publish", "Keyboard", topicName, controlInputSequence,
+            cmdVel.linear.x, cmdVel.angular.z, true, "KEYBOARD", ros != null);
         LastPublishedLinear = (float)cmdVel.linear.x;
         LastPublishedAngular = (float)cmdVel.angular.z;
         LastPublishedTime = Time.realtimeSinceStartup;

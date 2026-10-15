@@ -62,3 +62,41 @@ Unity XR 项目：用户站在 KAT Walk 跑步机上走路/转身，控制远端
 `.gitattributes`），但按上面这节的说明，实际会提交进仓库的原生二进制目前几乎没有
 ——真正体积大的那批已经被排除在版本控制之外了。clone 本仓库后需要先执行一次
 `git lfs install`（多数客户端装了 Git LFS 后会自动配置好 hook）。
+
+## 2026-10-15 分支更新说明
+
+本次将当前工作区的代码、配置、测试和说明整理到
+`feature/husky-navigation-panorama-20261015` 分支。主要变更：
+
+- **KAT / Husky 控制**：增加当前方向追踪模式、可选的朝向减速辅助、反馈积压与源时间戳重置检测，以及故障后的显式重新激活逻辑；加入 SLAM 航向修正，抑制轮式里程计转向漂移。具体行为和测试方法见 [DirectAngle 测试说明](Assets/KAT/DirectAngle-测试说明.md)。
+- **全景画面与朝向**：统一全景视频、车身框、目标箭头和手腕地图的航向换算；增加航向历史插值、视频延迟补偿、激活对齐与标定支持。同步保存当前 `MainScene` 配置。
+- **Livoscan 小地图**：新增 HTTP / WebSocket 数据源、点云与物体显示、手腕小地图、材质和着色器；接口背景见 [XR 小地图需求](Assets/Livoscan/XR_MINIMAP_REQUIREMENTS.md)。该文件是历史需求记录，验收条目不代表本次已完成实机验收。
+- **采集与诊断**：记录控制输入、请求、实际发布、底盘反馈及视图状态；增加反馈源探测、传输路径比较、底盘响应审计、视图回放和 SLAM 漂移分析工具。使用方法见 [采集器说明](Assets/KAT/Editor/KatPlayCapture.README.md)、[反馈传输审计](SupportPackage/FeedbackTransportAudit/README.md)、[底盘响应验收](SupportPackage/HuskyResponseAudit/README.md) 和 [漂移分析](Tools/slam_drift/README.md)。
+- **Insta360 部署**：拼接和推流分辨率更新为 2880 × 1440、30 fps；保持 FlowState 开启，通过 `INSTA360_GYRO_ZERO_AXES=z` 配置屏蔽陀螺仪 z 轴输入，并增加轴向诊断输出。
+
+### 本次验证
+
+在本机使用 .NET 10 和 Python 3.12 执行：
+
+| 检查 | 结果 |
+|---|---|
+| `dotnet run --no-restore --project SupportPackage/KatDirectAngleRegression/Tests.csproj` | 95 项离线仿真回归通过 |
+| `dotnet run --no-restore --project SupportPackage/KatMiniSCapture/Tests.csproj` | 采集与源探测生命周期检查通过；有 2 条测试替身未使用事件警告 |
+| `python SupportPackage/FeedbackTransportAudit/test_compare_feedback_paths.py` | 8 项通过 |
+| `python SupportPackage/FeedbackTransportAudit/test_ros_feedback_probe.py` | 9 项通过 |
+| `python Tools/test_ros_source_probe.py` | 6 项通过 |
+
+本机已有还原缓存，因此 C# 检查使用 `--no-restore`；首次克隆时先运行
+`dotnet restore` 并指定相应项目，或直接运行不带 `--no-restore` 的命令。
+上述结果覆盖离线逻辑、合成采集数据与本机回环通信；本次未运行 Unity / Quest
+实机验收，也未编译部署车载 C++ 服务或验证真实机器人运动。
+
+### 提交范围与本地数据
+
+本次不上传 `KATCaptures/`、ROS `.bag`、原始诊断视频、采集日志、审计输出、
+Unity 恢复备份及编译产物；文件仍保留在本地，新增忽略规则防止以后误提交。
+既有历史提交中的文件不在此次清理范围内。部分诊断脚本需要自行提供原始采集输入。
+
+[转角实验室](SupportPackage/KatAngleLab/README.md) 保留页面与服务源码；
+`dist/catalog.json` 和 `dist/traces/` 是生成的仿真数据，不纳入此次提交。
+首次运行前按该目录 README 的 `--export-site` 命令生成数据，以确保结果对应当前控制器。

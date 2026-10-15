@@ -8,7 +8,10 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <iostream>
 #include <memory>
 #include <thread>
@@ -155,6 +158,16 @@ private:
     std::atomic<bool> push_error_reported_{false};
 };
 
+// Gyro axes hidden from FlowState: bit 0 = x, 1 = y, 2 = z. Hiding only the
+// camera's vertical axis keeps shake/level stabilization but leaves heading
+// to Unity. INSTA360_GYRO_ZERO_AXES picks them (e.g. "z"); default all.
+// Default 4 = gyro z only. Pivoting the robot drives gyro z (measured
+// 14 Oct), so hiding it leaves heading to Unity while FlowState keeps
+// removing shake on x/y. Bit 3 (8) projects out the accelerometer's
+// gravity axis, but on the X5 the accelerometer axes differ from the
+// gyro axes (gravity reads along accel x), so do not use it.
+int g_zero_axes = 4;
+
 void HandleSignal(int) {
     keep_running = false;
 }
@@ -183,6 +196,42 @@ public:
                 converted.data(),
                 data.data(),
                 data.size() * sizeof(ins_camera::GyroData));
+        }
+        // Mean |rate| per axis every 2 s, before zeroing: the axis that
+        // dominates while the robot pivots in place is the vertical one.
+        // Gravity direction from low-passed accelerometer (about 1 s).
+        static double ux = 0, uy = 0, uz = 0;
+        static bool have_up = false;
+        static double sum_x = 0, sum_y = 0, sum_z = 0;
+        static long count = 0;
+        static auto last_print = std::chrono::steady_clock::now();
+        for (const auto& g : converted) {
+            sum_x += g.gx < 0 ? -g.gx : g.gx;
+            sum_y += g.gy < 0 ? -g.gy : g.gy;
+            sum_z += g.gz < 0 ? -g.gz : g.gz;
+            ++count;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_print > std::chrono::seconds(2) && count > 0) {
+            std::cout << "gyro mean|rate| x=" << sum_x / count << " y=" << sum_y / count
+                      << " z=" << sum_z / count << " zeroed_mask=" << g_zero_axes
+                      << " up=(" << ux << "," << uy << "," << uz << ")" << std::endl;
+            sum_x = sum_y = sum_z = 0; count = 0; last_print = now;
+        }
+        for (const auto& g : converted) {
+            if (!have_up) { ux = g.ax; uy = g.ay; uz = g.az; have_up = true; }
+            else { ux += 0.002 * (g.ax - ux); uy += 0.002 * (g.ay - uy); uz += 0.002 * (g.az - uz); }
+        }
+        const double un = std::sqrt(ux * ux + uy * uy + uz * uz);
+        for (auto& g : converted) {
+            if ((g_zero_axes & 8) && un > 1e-6) {
+                const double vx = ux / un, vy = uy / un, vz = uz / un;
+                const double along = g.gx * vx + g.gy * vy + g.gz * vz;
+                g.gx -= along * vx; g.gy -= along * vy; g.gz -= along * vz;
+            }
+            if (g_zero_axes & 1) g.gx = 0;
+            if (g_zero_axes & 2) g.gy = 0;
+            if (g_zero_axes & 4) g.gz = 0;
         }
         stitcher_->HandleGyroData(converted);
     }
@@ -233,7 +282,7 @@ int main() {
 
     auto stitcher = std::make_shared<ins::RealTimeStitcher>();
     auto publisher = std::make_shared<GStreamerPublisher>();
-    if (!publisher->Start(1920, 960, 30)) {
+    if (!publisher->Start(2880, 1440, 30)) {
         std::cerr << "Could not start the RTSP/WebRTC publishing pipeline."
                   << std::endl;
         camera->Close();
@@ -256,8 +305,22 @@ int main() {
 
     stitcher->SetCameraInfo(camera_info);
     stitcher->SetStitchType(ins::STITCH_TYPE::DYNAMICSTITCH);
+    // The realtime stitcher crashes (SIGSEGV) with FlowState off, so it stays
+    // on and its rotation input is zeroed instead (see OnGyroData).
+    const char* zero_env = std::getenv("INSTA360_ZERO_GYRO");
+    const char* axes_env = std::getenv("INSTA360_GYRO_ZERO_AXES");
+    if (zero_env != nullptr && std::string(zero_env) == "0") g_zero_axes = 0;
+    else if (axes_env != nullptr && *axes_env != '\0') {
+        const std::string axes(axes_env);
+        g_zero_axes = (axes.find('x') != std::string::npos ? 1 : 0)
+                    | (axes.find('y') != std::string::npos ? 2 : 0)
+                    | (axes.find('z') != std::string::npos ? 4 : 0)
+                    | (axes.find('vertical') != std::string::npos ? 8 : 0);
+    }
     stitcher->EnableFlowState(true);
-    stitcher->SetOutputSize(1920, 960);
+    std::cout << "FlowState on, gyro axes zeroed mask=" << g_zero_axes
+              << " (4 = gyro z only, default; 7 = all axes, picture rigid to camera)" << std::endl;
+    stitcher->SetOutputSize(2880, 1440);
     stitcher->SetStitchRealTimeDataCallback(
         [publisher](uint8_t* data[4],
            int strides[4],
@@ -277,7 +340,7 @@ int main() {
         std::make_shared<StitchDelegate>(stitcher);
     camera->SetStreamDelegate(delegate);
 
-    const auto resolution = ins_camera::VideoResolution::RES_1920_960P30;
+    const auto resolution = ins_camera::VideoResolution::RES_2880_1440P30;
     if (camera_type >= ins_camera::CameraType::Insta360X4) {
         if (!camera->SetVideoSubMode(ins_camera::SubVideoMode::VIDEO_LIVEVIEW)) {
             std::cerr << "Failed to switch camera to live-view mode." << std::endl;

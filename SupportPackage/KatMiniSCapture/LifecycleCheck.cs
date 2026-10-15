@@ -13,20 +13,31 @@ namespace UnityEngine {
   public static void LogError(object o) { throw new Exception(o.ToString()); }
  }
  public static class JsonUtility {
-  public static string ToJson(object o, bool pretty) { return new System.Web.Script.Serialization.JavaScriptSerializer().Serialize(o); }
+  public static string ToJson(object o, bool pretty=false) { return System.Text.Json.JsonSerializer.Serialize(o, new System.Text.Json.JsonSerializerOptions { IncludeFields=true, WriteIndented=pretty }); }
  }
 }
 namespace UnityEditor {
  public class InitializeOnLoadAttribute : Attribute {}
- public class MenuItem : Attribute { public MenuItem(string s) {} }
- public enum PlayModeStateChange { EnteredPlayMode, ExitingPlayMode }
+ public class MenuItem : Attribute { public MenuItem(string s, bool validate=false) {} }
+ public static class SessionState {
+  static readonly System.Collections.Generic.Dictionary<string,bool> values=new System.Collections.Generic.Dictionary<string,bool>();
+  public static bool GetBool(string key,bool fallback)=>values.TryGetValue(key,out bool value)?value:fallback;
+  public static void SetBool(string key,bool value) { values[key]=value; }
+ }
+ public static class Menu { public static bool lastChecked; public static void SetChecked(string path,bool value) { lastChecked=value; } }
+ public enum PlayModeStateChange { EnteredPlayMode, ExitingPlayMode, EnteredEditMode }
  public static class EditorApplication {
   public static bool isPlaying, isPaused;
+  public static bool isPlayingOrWillChangePlaymode=>isPlaying;
   public static event Action<PlayModeStateChange> playModeStateChanged;
   public static event Action update, quitting;
   public static Action delayCall;
   public static void Play() { isPlaying=true; playModeStateChanged(PlayModeStateChange.EnteredPlayMode); }
-  public static void Stop() { playModeStateChanged(PlayModeStateChange.ExitingPlayMode); isPlaying=false; }
+  public static void Stop() {
+   playModeStateChanged(PlayModeStateChange.ExitingPlayMode);
+   HuskyControlTrace.Record("publish", "Keyboard", "/cmd_vel", 1, 0f, 0f, false, "DISABLED", true);
+   isPlaying=false; playModeStateChanged(PlayModeStateChange.EnteredEditMode);
+  }
   public static void Tick() { Thread.Sleep(15); update(); }
  }
  public static class AssemblyReloadEvents { public static event Action beforeAssemblyReload; }
@@ -49,18 +60,76 @@ public static class KATNativeSDK {
  }
 }
 class LifecycleCheck {
+ static object ViewMenu(string method) => typeof(KatPlayCapture).GetMethod(method,
+  System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic).Invoke(null,null);
  static void Main(string[] args) {
-  UnityEngine.Application.dataPath=Path.GetFullPath(args[0]);
+  string root=Path.GetFullPath(Path.Combine("SupportPackage/KatMiniSCapture/test-output", "SYNTHETIC_"+Guid.NewGuid().ToString("N")));
+  UnityEngine.Application.dataPath=Path.Combine(root, "Assets");
+  Directory.CreateDirectory(Path.Combine(UnityEngine.Application.dataPath,"KAT/Editor"));
+  File.WriteAllText(Path.Combine(UnityEngine.Application.dataPath,"KAT/Editor/KatPlayCapture.README.md"),"SYNTHETIC TEST ONLY. No robot or SDK connection.");
+  var ros=new Unity.Robotics.ROSTCPConnector.ROSConnection();
+  UnityEngine.Object.Objects.Add(ros);
+  UnityEngine.Object.Objects.Add(new CmdVelPublisher());
   RuntimeHelpers.RunClassConstructor(typeof(KatPlayCapture).TypeHandle);
+  if(!(bool)ViewMenu("ValidateViewRecordingForNextPlay") || UnityEditor.Menu.lastChecked)throw new Exception("View recording must default off in Edit mode");
   UnityEditor.EditorApplication.Play();
+  if(KatViewFrameCapture.starts!=0)throw new Exception("Default Play must not start view capture");
+  if((bool)ViewMenu("ValidateViewRecordingForNextPlay"))throw new Exception("View recording menu must be disabled during Play");
+  ViewMenu("ToggleViewRecordingForNextPlay");
   UnityEditor.EditorApplication.Tick(); UnityEditor.EditorApplication.Tick();
+  HuskyControlTrace.Record("keyboard_input", "Keyboard", "/cmd_vel", 1, 1f, 0f);
+  HuskyControlTrace.Record("panorama", "Panorama", "/odometry/filtered", 0,
+   true,true,2,"Custom",true,1f,true,0f,123.0,60f,.01f,0f,10f,-50f,70f,0f);
+  HuskyControlTrace.Record("view_overlay", "Husky overlay", "/odometry/filtered", 0,
+   true,true,-50f,-50f,60.0,60f,0f,0f,false,true);
+  HuskyControlTrace.Record("minimap", "Livoscan wrist map", "", 0,
+   "AlignWithVideo",true,true,true,.02f,-80f,-50f,0f,30f,-50f,1f,0f,2f);
+  HuskyControlTrace.Record("publish", "Keyboard", "/cmd_vel", 1, .2f, 0f, true, "KEYBOARD", true);
+  var twist=new RosMessageTypes.Geometry.TwistMsg(); twist.linear.x=.2;
+  ros.Deliver("/husky_velocity_controller/cmd_vel", twist);
+  var output=new RosMessageTypes.Geometry.TwistStampedMsg(); output.header.stamp.sec=123; output.header.stamp.nanosec=456; output.twist=twist;
+  ros.Deliver("/husky_velocity_controller/cmd_vel_out", output);
+  ros.Deliver("/odometry/filtered", new RosMessageTypes.Nav.OdometryMsg());
+  KatPlayCapture.AddControlMarker("test,\"quoted\" marker");
   UnityEditor.EditorApplication.isPaused=true; int before=KATNativeSDK.reads;
   UnityEditor.EditorApplication.Tick(); if(KATNativeSDK.reads!=before)throw new Exception("Pause failed");
   UnityEditor.EditorApplication.isPaused=false;
   UnityEditor.EditorApplication.Stop();
+  if(KatViewFrameCapture.stops!=0)throw new Exception("Default capture must not stop an absent view recorder");
   UnityEditor.EditorApplication.Tick(); if(KATNativeSDK.reads!=before)throw new Exception("Stop failed");
+  string first=Directory.GetDirectories(Path.Combine(root,"KATCaptures"))[0];
+  foreach(string stage in new[]{"panorama","view_overlay","minimap"})
+   if(File.ReadAllLines(Path.Combine(first,"control_"+stage+".csv")).Length!=2)throw new Exception("Missing view stage: "+stage);
+  using(var info=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(first,"session.json")))) {
+   var value=info.RootElement;
+   if(value.GetProperty("viewCaptureRequested").GetBoolean())throw new Exception("Default session unexpectedly requested images");
+   if(value.GetProperty("unityPublishRows").GetInt32()!=2)throw new Exception("Exit zero command not captured");
+   if(value.GetProperty("chassisInputRows").GetInt32()!=1||value.GetProperty("chassisOutputRows").GetInt32()!=1||value.GetProperty("odometryRows").GetInt32()!=1)throw new Exception("Missing ROS stage");
+  }
+  long size=new FileInfo(Path.Combine(first,"control_chassis_command.csv")).Length;
+  ros.Deliver("/husky_velocity_controller/cmd_vel_out", output);
+  if(new FileInfo(Path.Combine(first,"control_chassis_command.csv")).Length!=size)throw new Exception("Post-stop callback wrote to closed capture");
+  if(!File.Exists(first+".zip"))throw new Exception("Capture not packaged");
+  ViewMenu("ValidateViewRecordingForNextPlay");
+  if(UnityEditor.Menu.lastChecked)throw new Exception("Mid-Play menu call must not arm future recording");
+  ViewMenu("ToggleViewRecordingForNextPlay");
+  if(!(bool)ViewMenu("ValidateViewRecordingForNextPlay") || !UnityEditor.Menu.lastChecked)throw new Exception("Edit-mode opt-in must arm next Play");
+  UnityEditor.EditorApplication.Play();
+  if(KatViewFrameCapture.starts!=1)throw new Exception("Explicit opt-in did not start view capture");
+  ViewMenu("ValidateViewRecordingForNextPlay");
+  if(UnityEditor.Menu.lastChecked)throw new Exception("View recording opt-in was not consumed");
+  UnityEditor.EditorApplication.Tick(); UnityEditor.EditorApplication.Stop();
+  if(KatViewFrameCapture.stops!=1)throw new Exception("Opt-in view capture did not finish before packaging");
+  string withView=Array.Find(Directory.GetDirectories(Path.Combine(root,"KATCaptures")),path=>path!=first);
+  using(var info=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(withView,"session.json"))))
+   if(!info.RootElement.GetProperty("viewCaptureRequested").GetBoolean())throw new Exception("Opt-in missing from session metadata");
   KATNativeSDK.count=0; KATNativeSDK.failCalibration=true;
   UnityEditor.EditorApplication.Play(); UnityEditor.EditorApplication.Tick(); UnityEditor.EditorApplication.Stop();
+  if(KatViewFrameCapture.starts!=1 || KatViewFrameCapture.stops!=1)throw new Exception("One-shot opt-in leaked into later Play");
+  if(ros.subscriptions!=3)throw new Exception("Duplicate ROS subscriptions across Play sessions");
+  FeedbackProbeLifecycleCheck.Run(root);
+  File.WriteAllText(Path.Combine("SupportPackage/KatMiniSCapture/test-output", "latest.txt"),first);
   Console.WriteLine("Lifecycle checks passed; test output contains SYNTHETIC DATA ONLY.");
+  Console.WriteLine(first);
  }
 }

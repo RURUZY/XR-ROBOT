@@ -1455,7 +1455,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 540981354}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: da61c5d3b0986194da7d6b7cb94d6154, type: 3}
   m_Name: 
@@ -1466,10 +1466,15 @@ MonoBehaviour:
   useInsideSphereMaterial: 1
   flipVideoHorizontally: 1
   centerSphereOnMainCamera: 1
-  compensateRobotHeading: 1
+  compensateRobotHeading: 0
+  panoramaHeadingMode: 1
   headingOdometryTopic: /odometry/filtered
   headingCompensationSign: 1
   headingTimeout: 1
+  videoHeadingDelaySeconds: 0.4
+  useSlamCorrectedHeading: 1
+  headingCorrectionSource: {fileID: 0}
+  alignViewOnActivation: 1
   showHeadingDiagnostics: 0
   logHeadingDiagnostics: 0
   rememberForwardCalibration: 1
@@ -1480,6 +1485,65 @@ MonoBehaviour:
   autoReconnect: 1
   reconnectDelay: 2
   iceGatheringTimeout: 10
+--- !u!1 &706048410
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 706048412}
+  - component: {fileID: 706048411}
+  m_Layer: 0
+  m_Name: livoscan
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!114 &706048411
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 706048410}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73b2cdacbfea9864a9e7d29aa471b726, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  source: {fileID: 0}
+  pointMaterial: {fileID: 2100000, guid: 2ec9bb3a5d796fb49996bc6dc4584e1d, type: 2}
+  objectMaterial: {fileID: 2100000, guid: 0f3feb4a37bd5694892512605c1e3cae, type: 2}
+  labelMaterial: {fileID: 0}
+  labelFont: {fileID: 0}
+  robotMaterial: {fileID: 0}
+  pointStride: 1
+  maxPointHeight: 0
+  labelHeight: 0.15
+  showConfidence: 1
+  labelWorldScale: 0
+  labelMaxDistance: 0
+  robotMarkerPrefab: {fileID: 0}
+  arrowRobotMarker: 0
+  arrowLength: 0.8
+--- !u!4 &706048412
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 706048410}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -5.449664, y: -0.63, z: -0.5544405}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 8
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &833047096
 GameObject:
   m_ObjectHideFlags: 0
@@ -1853,6 +1917,57 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 4
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1148418938
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1148418940}
+  - component: {fileID: 1148418939}
+  m_Layer: 0
+  m_Name: GameObject
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1148418939
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1148418938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 72bda3f991714704da2b4bcc231c7914, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  server: http://192.168.2.22:8770
+  loadMap: 1
+  reconnectInterval: 2
+  mapRetryInterval: 5
+  connectTimeout: 3
+  poseSmoothingTime: 0.1
+  poseTimeout: 2
+--- !u!4 &1148418940
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1148418938}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -2.9206457, y: -1.7457803, z: -0.40482616}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 9
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1393487875
 GameObject:
   m_ObjectHideFlags: 0
@@ -1908,7 +2023,7 @@ MonoBehaviour:
   minDriveSpeed: 0.08
   responseExponent: 0.6
   forwardAttackTime: 0.04
-  forwardReleaseTime: 0.15
+  forwardReleaseTime: 0.05
   enableStepInPlaceDrive: 1
   stepInPlaceInput: 0.35
   stepSignalHoldTime: 0.15
@@ -1955,13 +2070,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   controller: {fileID: 1393487878}
-  angleController: {fileID: 0}
-  headingSource: {fileID: 0}
+  angleController: {fileID: 1393487901}
+  headingSource: {fileID: 540981357}
   keyboardController: {fileID: 0}
   distanceFromCamera: 1.2
   verticalOffset: -0.25
   panelWidth: 0.6
-  panelHeight: 0.22
+  panelHeight: 0.27
   pixelsPerUnit: 800
   refreshInterval: 0.1
 --- !u!114 &1393487901
@@ -1979,8 +2094,8 @@ MonoBehaviour:
   cmdVelTopic: /cmd_vel
   odometryTopic: /odometry/filtered
   odometryTimeout: 0.5
-  katInputRecoveryGraceTime: 1
-  maxForwardSpeed: 0.8
+  katInputRecoveryGraceTime: 0.63
+  maxForwardSpeed: 0.5
   maxReverseSpeed: 0.35
   walkDeadZone: 0.02
   inputSpeedForMax: 3
@@ -1988,31 +2103,40 @@ MonoBehaviour:
   forwardStartRampInput: 0.02
   responseExponent: 0.6
   forwardAttackTime: 0
-  forwardReleaseTime: 0
+  forwardReleaseTime: 0.15
+  headingTrackingMode: 0
+  oppositeDirectionHysteresisDeg: 5
+  enableHeadingSpeedAssist: 0
+  forwardSlowdownStartDeg: 20
+  forwardStopHeadingDeg: 75
+  forwardResumeHeadingDeg: 60
+  forwardAssistRecoveryTime: 0.3
   enableStepInPlaceDrive: 1
   stepInPlaceInput: 0.35
   stepSignalHoldTime: 0.1
   stepFootSpeedThreshold: 0.05
   enableMoveSpeedPulseStepFallback: 1
   stepPulseThreshold: 0.08
-  stepPulseHoldTime: 0.55
+  stepPulseHoldTime: 0.75
   bodyToRosYawSign: -1
-  turnRateDeadZoneDegPerSec: 6
+  turnRateDeadZoneDegPerSec: 10
   bodyYawFilterTime: 0.06
-  stepTurnFilterMultiplier: 1
+  stepTurnFilterMultiplier: 4
   turnRateSmoothingTime: 0.1
   turnRateForMaxOutput: 90
+  feedforwardOneToOne: 1
   turnResponseExponent: 1
   openLoopMaxAngularSpeed: 1.5708
-  maxAngularSpeed: 1.6
-  turnAcceleration: 1.5
+  maxAngularSpeed: 1
+  turnAcceleration: 2
   turnDeceleration: 3
   headingKp: 1.2
-  nearHeadingKp: 0.4
+  nearHeadingKp: 0.7
   headingSlowZoneDeg: 15
   turnBrakingLookaheadTime: 0.35
+  limitTurnByStoppingDistance: 0
   maxHeadingCorrectionSpeed: 1.2
-  headingToleranceDeg: 2
+  headingToleranceDeg: 4
   maxHeadingErrorDeg: 120
   turnProgressTimeout: 5
   minimumTurnProgressDeg: 1
@@ -2022,6 +2146,14 @@ MonoBehaviour:
   bodyYawRecoveryStableTime: 0.3
   bodyYawRecoveryBandDeg: 3
   maxBodyTiltFromHorizontalDeg: 70
+  useSlamHeadingCorrection: 1
+  slamHeadingSource: {fileID: 0}
+  slamCorrectionTime: 0.6
+  slamExtraLatencySeconds: 0.2
+  slamMaxPoseAgeSeconds: 0.5
+  slamMaxCorrectionRateDegPerSec: 20
+  slamJumpThresholdDeg: 15
+  slamHoldAboveRobotYawRateDegPerSec: 40
   enableRobotControl: 1
   activationHand: 5
   activationTriggerThreshold: 0.2
@@ -2308,13 +2440,18 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1677088625}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ea517d77e0b43ec9915d6647e46a7aba, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   anchor: {fileID: 0}
   robotForwardYaw: 0
+  headingSource: {fileID: 540981357}
+  angleController: {fileID: 1393487901}
+  showTargetDirection: 1
+  targetColor: {r: 0.3, g: 0.65, b: 1, a: 1}
+  waitingColor: {r: 1, g: 0.35, b: 0.1, a: 1}
   cameraHeightAboveGround: 0.8
   mountForwardOffset: 0
   mountLateralOffset: 0
@@ -2327,6 +2464,75 @@ MonoBehaviour:
   borderWidth: 0.03
   frontColor: {r: 0.3, g: 1, b: 0.2, a: 1}
   frontBorderWidth: 0.05
+--- !u!1 &1717265133
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1717265135}
+  - component: {fileID: 1717265134}
+  m_Layer: 0
+  m_Name: mINIMAP
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1717265134
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1717265133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 108b5fde63fb63841831c26bdd12b3de, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  source: {fileID: 0}
+  hand: {fileID: 0}
+  handPositionOffset: {x: 0, y: 0.06, z: 0.1}
+  handRotationOffset: {x: -30, y: 0, z: 0}
+  videoDialTilt: 40
+  orientation: 0
+  mapScale: 0.03
+  mapRadius: 6
+  pointStride: 6
+  maxPointHeight: 1.8
+  robotArrowLength: 1
+  robotColor: {r: 1, g: 0.55, b: 0.1, a: 1}
+  untrustedRobotColor: {r: 0.55, g: 0.55, b: 0.55, a: 0.8}
+  poseStaleAfter: 1
+  dialColor: {r: 0, g: 0, b: 0, a: 0.45}
+  ringColor: {r: 0.3, g: 0.9, b: 1, a: 0.9}
+  videoReceiver: {fileID: 0}
+  labelWorldScale: 0.05
+  showConfidence: 0
+  visibleOnStart: 1
+  toggleHand: 4
+  enableKeyboardFallback: 0
+  toggleKey: 109
+  overlayShader: {fileID: 4800000, guid: 7ef8d06735e0ba04d9794087ece00569, type: 3}
+  overlayTextShader: {fileID: 4800000, guid: 0c1b5053d62638f4cbe587cd072b809e, type: 3}
+--- !u!4 &1717265135
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1717265133}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -2.9206457, y: -1.7457803, z: -0.40482616}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 10
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1811420203
 GameObject:
   m_ObjectHideFlags: 0
@@ -2360,8 +2566,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   topicName: /cmd_vel
-  linearSpeed: 0.4
-  angularSpeed: 0.6
+  linearSpeed: 0.5
+  angularSpeed: 1
 --- !u!65 &1811420205
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -2441,7 +2647,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1811420203}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.53, y: -0.67, z: 0.05}
+  m_LocalPosition: {x: 0.53, y: -0.67, z: 5.14}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
