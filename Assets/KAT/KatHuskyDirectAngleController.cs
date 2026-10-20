@@ -18,12 +18,9 @@ using RosMessageTypes.Nav;
 /// feedback uses gentle gain near the target and faster bounded catch-up
 /// farther away. Measured yaw rate anticipates braking. Published turn commands
 /// ramp up/down; faults and explicit stops still publish zero immediately.
-/// Stopping body rotation retains the latest target. CurrentDirection follows
-/// that direction without replaying obsolete revolutions; AccumulatedTurns
-/// retains the full rotation count for motion-reproduction experiments.
-/// The active default restores accumulated tracking and independent walking,
-/// with current command limits retained. Source-time freshness remains mandatory
-/// for BOTH channels; this safety guard is not part of the historical controller.
+/// Stopping body rotation retains the latest target; the target keeps the full
+/// accumulated rotation count. Walking stays independent of heading error.
+/// Source-time freshness remains mandatory for BOTH channels.
 /// No walking-dependent angle gain, automatic settle anchor, or KAT timestamp gate.
 /// Like the vendor walker/Direct controller, KAT availability uses connected and
 /// finite input checks. lastUpdateTimePoint is logged, not assumed to be a heartbeat.
@@ -31,15 +28,12 @@ using RosMessageTypes.Nav;
 /// Heading feedback is wheel odometry (this Husky fuses no IMU) corrected
 /// toward the SLAM yaw when a fresh ISlamHeadingSource is present. This also
 /// cancels the false yaw the wheel encoders report while reversing straight.
-/// Optional navigation assistance scales the independently measured walking
-/// intent by heading error and stops translation when heading is unavailable.
-/// Transients (odometry gap, EKF/frame jump,
-/// body-yaw glitch, invalid reading) resync or re-anchor the reference by
-/// themselves -- a short dropout keeps the pending turn. A stable new body
-/// sensor origin preserves accepted intent without inventing motion during the
-/// gap; a long odometry gap still drops intent that cannot be tracked. Short
-/// transients recover automatically. Sustained lack of turn progress pauses
-/// navigation and requires an explicit restart.
+/// Transients (EKF/frame jump, body-yaw glitch, invalid reading) resync or
+/// re-anchor the reference by themselves -- a short dropout keeps the pending
+/// turn. A stable new body sensor origin preserves accepted intent without
+/// inventing motion during the gap. Stale or backlogged odometry pauses and
+/// requires a fresh trigger press. Sustained lack of turn progress drops the
+/// unreachable target.
 /// Trigger toggles start/pause (activationLatch=false offers hold-to-run).
 /// Primary right button: software stop; secondary right: reverse; secondary left
 /// or optional C: pause for realignment; next activation takes a fresh reference.
@@ -51,10 +45,9 @@ using RosMessageTypes.Nav;
 [DisallowMultipleComponent]
 public class KatHuskyDirectAngleController : MonoBehaviour
 {
-    public enum HeadingTrackingMode { AccumulatedTurns, CurrentDirection }
     [Header("ROS")]
     public string cmdVelTopic = "/cmd_vel";
-    [Tooltip("Heading feedback. Navigation speed assistance also requires fresh heading feedback.")]
+    [Tooltip("Heading feedback (wheel odometry, corrected by SLAM when available).")]
     public string odometryTopic = "/odometry/filtered";
     public float odometryTimeout = 0.5f;
     [Tooltip("Stop commands immediately on invalid KAT data, but retain activation through a short dropout. Longer faults require a fresh start.")]
@@ -73,19 +66,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     [Tooltip("0 means no low-pass: even a one-tick step above the dead zone responds immediately.")]
     public float forwardAttackTime = 0f;
     public float forwardReleaseTime = 0f;
-
-    [Header("Navigation assistance")]
-    [Tooltip("CurrentDirection follows the latest direction without replaying obsolete full turns. AccumulatedTurns preserves the original multi-turn experiment.")]
-    public HeadingTrackingMode headingTrackingMode = HeadingTrackingMode.AccumulatedTurns;
-    [Tooltip("Keep the current turn direction near the +/-180 degree boundary to avoid left/right chatter.")]
-    [Range(0f, 15f)] public float oppositeDirectionHysteresisDeg = 5f;
-    public bool enableHeadingSpeedAssist = false;
-    [Min(0f)] public float forwardSlowdownStartDeg = 20f;
-    [Min(1f)] public float forwardStopHeadingDeg = 75f;
-    [Tooltip("After stopping for a large heading error, resume below this angle. Walking input is still required.")]
-    [Min(0f)] public float forwardResumeHeadingDeg = 60f;
-    [Tooltip("Seconds to restore the full walking multiplier. Reductions and invalid-heading stops are immediate.")]
-    [Min(0.01f)] public float forwardAssistRecoveryTime = 0.3f;
 
     [Header("Step-in-place control (Mini S / Walk C2)")]
     [Tooltip("Let the device-specific step signal drive forward even when moveSpeed stays near zero during a lift-and-step gait. Only ever affects the forward channel.")]
@@ -127,26 +107,24 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     public float headingSlowZoneDeg = 15f;
     [Tooltip("Seconds of measured robot rotation to allow for when reducing correction near the target. Uses odometry-derived yaw rate.")]
     public float turnBrakingLookaheadTime = 0.35f;
-    [Tooltip("Apply the stopping-speed envelope to BOTH feedforward and correction, so active body turning cannot bypass braking near the target. Uses the configured command deceleration; validate on the real chassis.")]
-    public bool limitTurnByStoppingDistance = false;
     [Tooltip("Maximum angle catch-up command, rad/s. The near-target gain still slows small corrections.")]
     public float maxHeadingCorrectionSpeed = 1.2f;
     public float headingToleranceDeg = 2f;
     [Tooltip("Cap on the proportional error, NOT accumulated turns. After live input stops, catch-up is limited by maxHeadingCorrectionSpeed.")]
     public float maxHeadingErrorDeg = 120f;
-    [Tooltip("Pause navigation if sustained turning produces no measured progress for this many seconds; restart with the trigger. Legacy accumulated-turn mode with speed assistance off retains the original re-anchor behavior.")]
+    [Tooltip("Drop the target if sustained turning produces no measured progress for this many seconds (robot blocked or refusing the command).")]
     [Min(0.5f)] public float turnProgressTimeout = 5f;
     [Min(0.1f)] public float minimumTurnProgressDeg = 1f;
     [Tooltip("A body-yaw sample implying more than this rate is a sensor/quaternion glitch and gets skipped (the repeated 135-139 deg jumps in the field logs). A RATE limit rather than a fixed step keeps genuinely fast turns across a frame hitch: 0.2 s of a 300 deg/s spin is a legitimate 60 deg step and must not be thrown away, or a fast 360 silently loses part of its angle.")]
     public float maxBodyYawRateDegPerSec = 720f;
     [Tooltip("Floor for the rate limit above, so a tick with near-zero elapsed time still accepts a normal step.")]
     public float maxAcceptedBodyYawStepDeg = 45f;
-    [Tooltip("Short-gap recovery interval. Navigation pauses after a longer gap or odometry reference reset and requires a released/new trigger press. Legacy accumulated mode with assistance off retains automatic recovery.")]
+    [Tooltip("Short-gap recovery interval for body heading and odometry resync.")]
     public float turnResyncGraceTime = 1f;
     [Tooltip("A persistent body-yaw offset must stay within a small band for this duration before rebasing only the sensor. Already accepted turn intent is retained; motion during the invalid interval is unknown.")]
     public float bodyYawRecoveryStableTime = 0.3f;
     public float bodyYawRecoveryBandDeg = 3f;
-    [Tooltip("Invalid heading stops turning. When navigation assistance is enabled, translation also stops until heading recovers.")]
+    [Tooltip("Invalid heading stops turning; walking stays independent.")]
     public float maxBodyTiltFromHorizontalDeg = 70f;
 
     [Header("SLAM heading correction")]
@@ -211,8 +189,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     public bool HeadingCalibrated => headingCalibrated;
     public bool IsControlActive => isActiveAndEnabled && enableRobotControl && activationEnabled && !emergencyStopEngaged;
     public bool HasUsableHeading => isActiveAndEnabled && headingCalibrated && bodyHeadingUsable && HasFreshOdometry;
-    public float ForwardSpeedMultiplier { get; private set; } = 1f;
-    public string ForwardAssistStatus { get; private set; } = "READY";
     // The TARGET follows the FILTERED body turn, not the raw one: the raw angle
     // carries whole-degree quantization plus several degrees of gait sway, and
     // feeding that straight into the setpoint is what made the robot twitch and
@@ -233,15 +209,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         get
         {
             if (!headingCalibrated) return double.NaN;
-            double error = TargetHeading - CorrectedRobotYaw;
-            if (headingTrackingMode == HeadingTrackingMode.AccumulatedTurns) return error;
-            error = (error % 360.0 + 540.0) % 360.0 - 180.0;
-            // The small overlap avoids reversing the chassis on every noisy
-            // sample when the user's desired direction is directly behind it.
-            if (System.Math.Abs(error) >= 180.0 - Mathf.Clamp(oppositeDirectionHysteresisDeg, 0f, 15f)
-                && preferredTurnDirection != 0f && error * preferredTurnDirection < 0)
-                error += 360.0 * preferredTurnDirection;
-            return error;
+            return TargetHeading - CorrectedRobotYaw;
         }
     }
     public double BodyTurnDeg => headingCalibrated ? bodyTurnDeg : double.NaN;
@@ -251,7 +219,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
     private ROSConnection ros;
 
-    // Odometry is shared by turning and optional navigation speed assistance.
     private bool hasOdometry;
     private readonly RobotFeedbackFreshness feedbackFreshness = new RobotFeedbackFreshness();
     private bool odometryUsable, odometryClockReset, bodyHeadingUsable;
@@ -270,9 +237,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     private bool watchingTurnProgress;
     private double progressReferenceYaw;
     private float progressStartTime, progressDirection;
-    private float preferredTurnDirection;
-    private bool forwardHeldForHeading;
-    private float lastForwardAssistTime = -1f;
     private readonly SlamHeadingCorrector slamCorrector = new SlamHeadingCorrector();
     private ISlamHeadingSource slamSource;
     private MonoBehaviour slamSourceBehaviour;
@@ -283,8 +247,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     private string restartRequiredReason;
     private bool restartTriggerReleased;
     private long controlInputSequence;
-    private bool RequiresExplicitHeadingRecovery => enableHeadingSpeedAssist
-        || headingTrackingMode == HeadingTrackingMode.CurrentDirection;
     private string RestartStatus => restartRequiredReason + " / RELEASE THEN PRESS TRIGGER";
     private bool lastActivationButton;
     private bool physicalTriggerHeld;
@@ -358,7 +320,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         activationEnabled = startActivated;
         status = activationEnabled ? "ACTIVE" : "PRESS TRIGGER TO START";
         if (enableDebugLog)
-            Debug.Log($"[KAT DIRECT ANGLE] Configuration: mode={headingTrackingMode}, headingAssist={enableHeadingSpeedAssist}, forwardMax={maxForwardSpeed:F2} m/s, reverseMax={maxReverseSpeed:F2} m/s, angularMax={maxAngularSpeed:F2} rad/s.");
+            Debug.Log($"[KAT DIRECT ANGLE] Configuration: forwardMax={maxForwardSpeed:F2} m/s, reverseMax={maxReverseSpeed:F2} m/s, angularMax={maxAngularSpeed:F2} rad/s, slamCorrection={useSlamHeadingCorrection}.");
     }
 
     private void OnOdometry(OdometryMsg message)
@@ -426,12 +388,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         hasOdometry = true;
         odometryUsable = true;
         odometryClockReset = false;
-
-        if (hadOdometry && (longGap || discontinuity) && activationEnabled && RequiresExplicitHeadingRecovery)
-        {
-            PauseForRestart(longGap ? "ODOMETRY GAP" : "ODOMETRY REFERENCE RESET");
-            return;
-        }
 
         // True reference discontinuities preserve the pending relative turn.
         // Long gaps discard it because orientation alone cannot recover turns.
@@ -517,15 +473,13 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         {
             // Also check elapsed time on recovery: there may have been no ticks
             // during a long frame stall. Never resume an old activation then.
-            if (Time.realtimeSinceStartup - katInputFaultSince > Mathf.Max(katInputRecoveryGraceTime, 0f))
+            if (Time.realtimeSinceStartup - katInputFaultSince > Mathf.Max(katInputRecoveryGraceTime, 0f)
+                && activationEnabled)
             {
-                if (activationEnabled && RequiresExplicitHeadingRecovery)
-                {
-                    PauseForRestart("KAT INPUT LOST");
-                    katInputFaultSince = -1f;
-                    return;
-                }
-                activationEnabled = false;
+                // A held trigger must not resume a long-lost session by itself.
+                PauseForRestart("KAT INPUT LOST");
+                katInputFaultSince = -1f;
+                return;
             }
             if (enableDebugLog)
                 Debug.Log($"[KAT DIRECT ANGLE] KAT input recovered; activation retained={activationEnabled}");
@@ -539,19 +493,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             ResetAllState();
             PublishStopIfDue();
             LogIfDue(float.NaN, 0f, 0f);
-            return;
-        }
-
-        if (RequiresExplicitHeadingRecovery && hasOdometry
-            && Time.realtimeSinceStartup - lastOdometryTime > Mathf.Max(turnResyncGraceTime, odometryTimeout))
-        {
-            PauseForRestart("ODOMETRY GAP");
-            return;
-        }
-        if (RequiresExplicitHeadingRecovery && hasRawBodyYaw
-            && Time.realtimeSinceStartup - lastBodyYawValidTime > Mathf.Max(turnResyncGraceTime, 0f))
-        {
-            PauseForRestart("BODY HEADING GAP");
             return;
         }
 
@@ -591,8 +532,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             lastRawForward = Mathf.Max(lastRawForward, Mathf.Max(stepInPlaceInput, 0f));
         }
 
-        // Always process the latest heading, including while translation is
-        // held. Optional navigation assistance checks its validity below.
         if (TryGetHorizontalBodyYaw(data.bodyRotationRaw, out float rawBodyYawDeg))
         {
             UpdateTurnRate(rawBodyYawDeg);
@@ -610,15 +549,12 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             forward = -forward;
         }
         float linear = CalculateLinear(forward);
-        float unassistedLinear = linear;
         float angular = CalculateTurn();
-        linear = ApplyHeadingSpeedAssist(linear);
 
         status = activationEnabled ? (reverseModeEnabled ? "ACTIVE / REVERSE / " : "ACTIVE / ") + turnStatus
             : RestartStatus;
         HuskyControlTrace.Record("request", "KAT DirectAngle", cmdVelTopic, controlInputSequence,
-            unassistedLinear, linear, angular, DesiredRobotYawDeg, HeadingErrorDeg, ForwardSpeedMultiplier,
-            headingTrackingMode.ToString(), activationEnabled, HasUsableHeading, status,
+            linear, angular, DesiredRobotYawDeg, HeadingErrorDeg, activationEnabled, HasUsableHeading, status,
             SlamCorrectionDeg, SlamHeadingStatus);
         PublishIfDue(linear, angular);
         float debugRawBodyYawDeg = hasRawBodyYaw ? lastRawBodyYawDeg : float.NaN;
@@ -632,14 +568,11 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             katInputFaultSince = Time.realtimeSinceStartup;
             if (enableDebugLog) Debug.LogWarning("[KAT DIRECT ANGLE] " + reason + "; commands stopped.");
         }
-        if (Time.realtimeSinceStartup - katInputFaultSince > Mathf.Max(katInputRecoveryGraceTime, 0f))
+        if (Time.realtimeSinceStartup - katInputFaultSince > Mathf.Max(katInputRecoveryGraceTime, 0f)
+            && activationEnabled)
         {
-            if (activationEnabled && RequiresExplicitHeadingRecovery)
-            {
-                PauseForRestart("KAT INPUT LOST");
-                return;
-            }
-            activationEnabled = false;
+            PauseForRestart("KAT INPUT LOST");
+            return;
         }
         status = reason + (activationEnabled ? " / WAITING FOR RECOVERY" : " / PRESS TRIGGER AFTER RECOVERY");
         ResetForwardIntent();
@@ -847,44 +780,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         return forward >= 0f ? output : -output;
     }
 
-    private float ApplyHeadingSpeedAssist(float linear)
-    {
-        float now = Time.realtimeSinceStartup;
-        float dt = lastForwardAssistTime < 0f ? 0f : Mathf.Clamp(now - lastForwardAssistTime, 0f, 0.1f);
-        lastForwardAssistTime = now;
-        if (!enableHeadingSpeedAssist)
-        {
-            ForwardSpeedMultiplier = 1f;
-            forwardHeldForHeading = false;
-            ForwardAssistStatus = "ASSIST OFF";
-            return linear;
-        }
-        if (!HasUsableHeading)
-        {
-            ForwardSpeedMultiplier = 0f;
-            forwardHeldForHeading = false;
-            ForwardAssistStatus = "WAITING FOR HEADING";
-            // Do not replay held footsteps when a sensor returns.
-            ResetForwardIntent();
-            return 0f;
-        }
-        float error = (float)System.Math.Abs(HeadingErrorDeg);
-        float start = Mathf.Clamp(forwardSlowdownStartDeg, 0f, 178f);
-        float stop = Mathf.Clamp(forwardStopHeadingDeg, start + 1f, 180f);
-        float resume = Mathf.Clamp(forwardResumeHeadingDeg, start, stop - 1f);
-        if (error >= stop) forwardHeldForHeading = true;
-        else if (error <= resume) forwardHeldForHeading = false;
-        float t = Mathf.Clamp01((error - start) / (stop - start));
-        float target = forwardHeldForHeading ? 0f : 1f - t * t * (3f - 2f * t);
-        ForwardSpeedMultiplier = target < ForwardSpeedMultiplier ? target
-            : Mathf.MoveTowards(ForwardSpeedMultiplier, target, dt / Mathf.Max(forwardAssistRecoveryTime, 0.01f));
-        ForwardAssistStatus = forwardHeldForHeading ? "ALIGNING / TRANSLATION HELD"
-            : ForwardSpeedMultiplier < 0.99f ? "ALIGNING / REDUCED SPEED" : "READY";
-        // Applies equally to the explicit reverse mode. It never invents or
-        // queues walking input, and never changes the desired heading.
-        return linear * ForwardSpeedMultiplier;
-    }
-
     private float CalculateTurn()
     {
         LiveTurnDemand = CorrectionTurnDemand = 0f;
@@ -900,8 +795,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         }
         if (!headingCalibrated || !bodyHeadingUsable) return 0f;
         double error = HeadingErrorDeg;
-        if (System.Math.Abs(error) > headingToleranceDeg)
-            preferredTurnDirection = Mathf.Sign((float)error);
         // Human rotation can outrun the chassis by a wide margin. Never discard
         // a valid accumulated turn just because it exceeds maxHeadingErrorDeg:
         // that cap limits the proportional term only, and an earlier version
@@ -919,15 +812,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             feedforward = 0f;
         float angular = feedforward + feedback;
         angular = Mathf.Clamp(angular, -maxAngularSpeed, maxAngularSpeed);
-        if (limitTurnByStoppingDistance)
-        {
-            float direction = Mathf.Sign((float)error);
-            float approachingRate = Mathf.Max(0f, direction * measuredRobotYawRate);
-            float remainingDeg = Mathf.Max(0f, (float)System.Math.Abs(error) - headingToleranceDeg
-                - approachingRate * Mathf.Max(turnBrakingLookaheadTime, 0f));
-            float stoppingSpeed = Mathf.Sqrt(2f * Mathf.Max(turnDeceleration, 0.01f) * remainingDeg * Mathf.Deg2Rad);
-            angular = Mathf.Clamp(angular, -stoppingSpeed, stoppingSpeed);
-        }
         if (!CheckTurnProgress(angular)) return 0f;
         LiveTurnDemand = feedforward;
         CorrectionTurnDemand = feedback;
@@ -998,13 +882,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             progressStartTime = Time.realtimeSinceStartup;
         }
         if (Time.realtimeSinceStartup - progressStartTime < Mathf.Max(turnProgressTimeout, 0.5f)) return true;
-        if (enableHeadingSpeedAssist || headingTrackingMode == HeadingTrackingMode.CurrentDirection)
-        {
-            // Forgetting the target here would make a blocked robot look
-            // aligned and release held walking in the wrong direction.
-            PauseForRestart("NO TURN PROGRESS");
-            return false;
-        }
         if (enableDebugLog)
             Debug.LogWarning($"[KAT DIRECT ANGLE] No turn progress: bodyTurn={bodyTurnDeg:F1}, " +
                 $"robotTurn={RobotTurnDeg:F1}, pending={HeadingErrorDeg:F1} deg. Target dropped (robot blocked or refusing the command).");
@@ -1017,7 +894,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
     private void CalibrateHeading()
     {
-        preferredTurnDirection = 0f;
         robotReference = CorrectedRobotYaw;
         headingSign = Mathf.Sign(bodyToRosYawSign);
         bodyTurnDeg = filteredBodyTurnDeg = 0;
@@ -1029,12 +905,10 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
     /// <summary>
     /// Redefine "robot forward" as the operator's current body direction and
-    /// clear the pending turn. Automatic recovery is restricted to the legacy
-    /// accumulated-turn experiment with heading speed assistance disabled.
+    /// clear the pending turn (long odometry gap or a blocked robot).
     /// </summary>
     private void ReanchorTurnTarget(string reason)
     {
-        preferredTurnDirection = 0f;
         robotReference = CorrectedRobotYaw;
         bodyTurnDeg = filteredBodyTurnDeg = 0;
         filteredYawRateDegPerSec = 0f;
@@ -1295,11 +1169,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
     private void ResetAllState()
     {
-        preferredTurnDirection = 0f;
-        forwardHeldForHeading = false;
-        ForwardSpeedMultiplier = 1f;
-        ForwardAssistStatus = "READY";
-        lastForwardAssistTime = -1f;
         LiveTurnDemand = CorrectionTurnDemand = 0f;
         ResetForwardIntent();
         filteredYawRateDegPerSec = 0f;
@@ -1358,7 +1227,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         if (!feedbackFreshness.IsFresh(Time.realtimeSinceStartup, Mathf.Max(odometryTimeout, 0.05f)))
             linear = angular = 0f;
         if (!headingCalibrated || !bodyHeadingUsable || !HasFreshOdometry) angular = 0f;
-        if (enableHeadingSpeedAssist && !HasUsableHeading) linear = 0f;
         linear = Mathf.Clamp(linear, -Mathf.Max(maxReverseSpeed, 0f), Mathf.Max(maxForwardSpeed, 0f));
         angular = Mathf.Clamp(angular, -Mathf.Min(Mathf.Max(maxAngularSpeed, 0f), 2f), Mathf.Min(Mathf.Max(maxAngularSpeed, 0f), 2f));
         if (angular == 0f) LiveTurnDemand = CorrectionTurnDemand = 0f;
@@ -1385,7 +1253,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             $"BodyRaw={rawBodyYawDeg:F1} YawRate={filteredYawRateDegPerSec:F1}deg/s " +
             $"Linear={linear:F3} Angular={angular:F3} AngularCommand={lastPublishedAngular:F3} RobotYawRate={measuredRobotYawRate:F1}deg/s LiveTurn={LiveTurnDemand:F3} CorrectionTurn={CorrectionTurnDemand:F3} | BodyTurn={BodyTurnDeg:F1} TargetTurn={TargetTurnDeg:F1} RobotTurn={RobotTurnDeg:F1} Target={DesiredRobotYawDeg:F1} Error={HeadingErrorDeg:F1} " +
             $"Robot={robotYawDeg:F1} Fresh={HasFreshOdometry} Turn=[{turnStatus}] KatStamp={lastKatTimestamp:R} " +
-            $"HeadingMode={headingTrackingMode} ForwardScale={ForwardSpeedMultiplier:F3} Assist=[{ForwardAssistStatus}] " +
             $"SlamCorrection={SlamCorrectionDeg:F1} Slam=[{SlamHeadingStatus}]"
         );
 

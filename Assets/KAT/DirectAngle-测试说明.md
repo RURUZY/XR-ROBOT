@@ -1,5 +1,9 @@
 # DirectAngle：开环踏步 + 身体转角纠偏
 
+## 2026-10-20：清理未使用的导航功能
+
+删除 `Current Direction` 模式、朝向速度辅助（`enableHeadingSpeedAssist` 及 4 个减速参数）、`oppositeDirectionHysteresisDeg`、`limitTurnByStoppingDistance`。场景里早就关闭了这些功能，删除后控制行为不变；场景中残留的序列化值会被 Unity 自动忽略。保留并统一了一项安全行为：KAT 断开超过恢复宽限期时，所有模式都要求松开再按扳机（以前只有导航模式这样做，"按住扳机才走"的模式会在 KAT 恢复后自行继续）。request 记录去掉 `unassisted_linear`、`forward_multiplier`、`heading_mode` 三列。HUD 原来显示导航辅助状态的一行，改为显示 SLAM 校正状态和校正量。删除 `NavigationTests.cs`，以及 RecoveryTraceTests 里导航模式专属的两项测试；共 78 项回归通过，Unity 2022.3.4 编译通过。
+
 ## 2026-10-14 傍晚：画面随车运动逐渐偏离，关闭相机 FlowState
 
 用户反馈：开始时标定正确，车动了以后画面会逐渐偏。15:55 那次的记录中，每 5 秒一段对比，全景球的转角和 SLAM 测到的车实际转角相差在 ±5° 以内，而且只是转弯中途的短暂偏差，所以 Unity 的补偿是对的。偏差来自视频内容本身：相机程序开启了 `EnableFlowState(true)`，用相机自身的陀螺仪处理画面朝向，画面不会 1:1 跟随车身转动，而 Unity 是按车的实际转角补偿的。`camera_stitch_test.cpp` 改为由环境变量 `INSTA360_FLOWSTATE` 和 `INSTA360_DIRECTION_LOCK` 控制，默认都关闭（`docker-compose.yml` 中设为 "0"），需要在机器人上重新构建一次镜像。关闭后画面不再自动保持水平。Windows 上无法编译，只能在机器人上构建验证。关闭以后要用 F6/F7 重新标定一次相机安装夹角。

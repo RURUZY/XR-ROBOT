@@ -27,9 +27,9 @@ partial class Program
         // modeled an ever-growing queue. Backlog tests now exercise that explicitly.
         seq++;ReceiveOdometry(robot,sourceStamp);Call("Update");Call("FixedUpdate");
     }
-    // Historical tests explicitly select the former experimental profile.
-    // NavigationTests exercises the new scene profile separately.
-    static void New(){Time.realtimeSinceStartup=10;Time.PhysicsTime=null;seq=0;Input.Keys.Clear();MiniSExtraData.Step=false;c=new KatHuskyDirectAngleController{enableDebugLog=false,enableKeyboardFallback=true,bodyToRosYawSign=1,turnRateDeadZoneDegPerSec=6,maxForwardSpeed=.8f,maxReverseSpeed=.35f,maxAngularSpeed=1.6f,headingTrackingMode=KatHuskyDirectAngleController.HeadingTrackingMode.AccumulatedTurns,enableHeadingSpeedAssist=false,limitTurnByStoppingDistance=false};Call("OnEnable");Call("Start");Tick();Press(KeyCode.T);Tick();Assert(Active,"start");}
+    static void New(){Time.realtimeSinceStartup=10;Time.PhysicsTime=null;seq=0;Input.Keys.Clear();MiniSExtraData.Step=false;c=new KatHuskyDirectAngleController{enableDebugLog=false,enableKeyboardFallback=true,bodyToRosYawSign=1,turnRateDeadZoneDegPerSec=6,maxForwardSpeed=.8f,maxReverseSpeed=.35f,maxAngularSpeed=1.6f};Call("OnEnable");Call("Start");Tick();Press(KeyCode.T);Tick();Assert(Active,"start");}
+    // Scene-like limits with unfiltered body yaw, for the recovery/trace tests.
+    static void Profile(){New();c.maxForwardSpeed=c.maxReverseSpeed=.3f;c.maxAngularSpeed=.5f;c.bodyYawFilterTime=c.turnRateSmoothingTime=0f;}
     static void Main(string[] args){
         if(args.Length > 0 && args[0] == "--turn-audit") { RunTurnAudit(); return; }
         if(args.Length > 0 && args[0] == "--export-site") { LabExport.Export(args[1]); return; }
@@ -99,7 +99,6 @@ partial class Program
         Test("persistent body jump rebases sensor without cancelling accepted turn",()=>{New();Tick(10,0);for(int i=0;i<90;i++){Tick(149,0);Assert(Math.Abs(c.BodyTurnDeg-10)<.01,"glitch leaked or target dropped");}Assert(c.LastPublishedAngular>0,"did not resume catch-up");Tick(151,0);Assert(Math.Abs(c.BodyTurnDeg-12)<.01,"new sensor baseline incorrect");});
         Test("wall clock handles a hitch independently of physics time",()=>{New();c.bodyYawFilterTime=0;c.turnRateSmoothingTime=0;Time.PhysicsTime=10.02f;Time.realtimeSinceStartup+=.2f;Call("UpdateTurnRate",60f);Assert(Math.Abs(c.BodyTurnDeg-60)<.01,"hitch rejected legitimate angle");Assert(Math.Abs(c.FilteredYawRateDegPerSec-300)<1,"wrong sampling clock");double target=c.TargetTurnDeg;Call("UpdateTurnRate",60f);Assert(c.TargetTurnDeg==target&&Math.Abs(c.FilteredYawRateDegPerSec-300)<1,"catch-up tick advanced filter");Time.PhysicsTime=null;});
         Test("blocked chassis drops unreachable pending turn",()=>{New();Set("bodyTurnDeg",90.0);Set("filteredBodyTurnDeg",90.0);for(int i=0;i<300;i++)Tick(0,0);Assert(Math.Abs(c.HeadingErrorDeg)<.01&&c.LastPublishedAngular==0,"blocked target persists");});
-        RunNavigationTests();
         RunRecoveryTraceTests();
         RunViewHeadingTests();
         RunFeedbackFreshnessTests();

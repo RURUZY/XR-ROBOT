@@ -69,7 +69,7 @@
 
 所有 `control_*.csv` 使用同一采集段的 `elapsed_s` 和电脑 `host_utc_ns`，并保留 `unity_receipt_s`。这统一了 Unity 端的记录时基，不代表远程机器和视频采集时钟已经同步。`event_seq` 表示事件顺序，`source + input_seq` 关联一次控制器读取及它产生的请求/发布；停止事件可沿用上一输入编号，初始编号可为 0。每次重新启用组件可重置 input_seq，需要同时用 event_seq 区分段落。
 
-`request` 每次实际计算记录，`publish` 每次实际发布记录，因此行数不必一致。`unassisted_linear` 是方向减速前的映射值，`requested_linear` 是方向减速后的值，`requested_angular` 尚未经过发布节流/加减速；最终发给连接器的值看 `control_publish.csv`。`transport_available=True` 只说明存在连接器对象，不证明 TCP 在线或机器人执行成功。原生 SDK 数据中的时间戳仍是原值，不当作已验证的 UTC 或硬件采样时刻。
+`request` 每次实际计算记录，`publish` 每次实际发布记录，因此行数不必一致。`requested_linear` 是踏步映射后的前进值，`requested_angular` 尚未经过发布节流/加减速，`target_yaw_deg` 与 `error_deg` 都在 SLAM 校正后的朝向参考系中，`slam_correction_deg`/`slam_status` 是当时的校正量与状态（2026-10-20 起导航辅助相关的 `unassisted_linear`、`forward_multiplier`、`heading_mode` 三列已删除）；最终发给连接器的值看 `control_publish.csv`。`transport_available=True` 只说明存在连接器对象，不证明 TCP 在线或机器人执行成功。原生 SDK 数据中的时间戳仍是原值，不当作已验证的 UTC 或硬件采样时刻。
 
 采集通过现有 ROSConnection 只读订阅 `/odometry/filtered`（以及场景控制器指定的 odometryTopic）、`/husky_velocity_controller/cmd_vel`（Twist）和 `/husky_velocity_controller/cmd_vel_out`（TwistStamped）。输出类型已和项目 2026-09-11 实车 bag 核对；如果现场换了名称或类型，需要相应适配。没有收到消息时留空/缺文件，绝不补零。保留机器人侧同一实验的 ROS bag，核对源时间戳、发布者以及原始到达顺序。
 

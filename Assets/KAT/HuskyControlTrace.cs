@@ -27,7 +27,7 @@ public static class HuskyControlTrace
         {
             case "input": return "sdk_stamp_raw,connected,move_x,move_y,move_z,quat_x,quat_y,quat_z,quat_w";
             case "keyboard_input": return "move_axis,turn_axis";
-            case "request": return "unassisted_linear,requested_linear,requested_angular,target_yaw_deg,error_deg,forward_multiplier,heading_mode,activated,heading_usable,status,slam_correction_deg,slam_status";
+            case "request": return "requested_linear,requested_angular,target_yaw_deg,error_deg,activated,heading_usable,status,slam_correction_deg,slam_status";
             case "publish": return "linear_x,angular_z,activated,status,transport_available";
             case "odometry": return "ros_stamp_sec,ros_stamp_nsec,frame_id,child_frame_id,x,y,z,quat_x,quat_y,quat_z,quat_w,linear_x,angular_z";
             case "chassis_command": return "ros_stamp_sec,ros_stamp_nsec,frame_id,linear_x,linear_y,linear_z,angular_x,angular_y,angular_z";
