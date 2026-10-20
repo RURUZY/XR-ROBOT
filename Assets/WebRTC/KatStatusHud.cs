@@ -153,7 +153,7 @@ public class KatStatusHud : MonoBehaviour
                     : (error > 0 ? "LEFT " : "RIGHT ") + System.Math.Abs(error).ToString("F0") + "° TO TARGET";
                 statusText.text += "\n" + direction
                     + $" | Drive command {angleController.LastPublishedLinear:F2} m/s"
-                    + $"\n{angleController.SlamHeadingStatus} ({angleController.SlamCorrectionDeg:+0.0;-0.0}° correction)";
+                    + $"\n{angleController.ActiveHeadingSource}: {angleController.HeadingSourceStatus}";
             }
             else statusText.text += "\nTurn: " + angleController.TurnStatus;
         }

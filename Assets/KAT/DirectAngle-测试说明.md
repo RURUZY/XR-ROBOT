@@ -1,5 +1,15 @@
 # DirectAngle：开环踏步 + 身体转角纠偏
 
+## 2026-10-20 下午：JetsonGyro 航向来源
+
+按 livoscan-mywork `docs/xr-unity/GYRO_HEADING_HANDOFF_20261020.md` 第 4 节（以下午更新为准）实现。`headingSource` 有三个选项：`WheelOdometry`、`WheelPlusSlam`、`JetsonGyro`（默认），取代原来的 `useSlamHeadingCorrection`。
+
+- `JetsonGyro`：航向 = pose 消息的 `yaw_odom`（unwrap，转成度），按 `yaw_rate × (heading_age_s + 本地收到后经过的时间)` 外推，外推最多 0.4 s；转速用 `yaw_rate`，预判刹车也用它。不叠加 `SlamHeadingCorrector`。新鲜度：超过 0.2 s 没有新消息，或 `heading_age_s` > 0.2 s，就停止转向，前进不受影响；不看 `age_s`。中断不超过 `turnResyncGraceTime`（1 s）时保持目标，超过则重新锚定。一旦收到陀螺仪字段就不再切回轮子。
+- 服务端没有这三个字段时（`FAST_POSE` 关闭或旧服务），自动按 `WheelPlusSlam` 运行；中途第一次收到字段时会重新锚定一次（两个参考系不同）。
+- 每种模式都仍要求里程计新鲜：它同时用来检查 `/cmd_vel` 所走的 ROS 链路是否正常。陀螺仪模式下，里程计的参考系变化不再影响目标角。
+- 全景画面、车身框、目标箭头、HUD 通过 `HeadingOffsetDeg` 使用同一个航向；小地图继续用地图坐标系的 `yaw`。
+- `LivoscanDataSource` 解析三个字段，按 `(t, yaw_odom)` 去重。记录新增 7 列（见 KatPlayCapture.README）。新增 `GyroHeadingTracker.cs`。离线回归新增 6 项：轮子少报 12% 或虚报 6°/s 时 90° 转身到 88.4°；Jetson 消息中断 0.3 s 时转向停、前进不停、参考角不跳；`age_s` 很大时仍照常转向；`yaw_odom` 跨越 ±180° 时 unwrap 正确；外推与新鲜度；没有字段时回退到 WheelPlusSlam。共 84 项通过，Unity 2022.3.4 编译通过。场景中尚未序列化 `headingSource`，使用代码默认值 JetsonGyro，下次保存场景时会写入。尚未实车测试。
+
 ## 2026-10-20：清理未使用的导航功能
 
 删除 `Current Direction` 模式、朝向速度辅助（`enableHeadingSpeedAssist` 及 4 个减速参数）、`oppositeDirectionHysteresisDeg`、`limitTurnByStoppingDistance`。场景里早就关闭了这些功能，删除后控制行为不变；场景中残留的序列化值会被 Unity 自动忽略。保留并统一了一项安全行为：KAT 断开超过恢复宽限期时，所有模式都要求松开再按扳机（以前只有导航模式这样做，"按住扳机才走"的模式会在 KAT 恢复后自行继续）。request 记录去掉 `unassisted_linear`、`forward_multiplier`、`heading_mode` 三列。HUD 原来显示导航辅助状态的一行，改为显示 SLAM 校正状态和校正量。删除 `NavigationTests.cs`，以及 RecoveryTraceTests 里导航模式专属的两项测试；共 78 项回归通过，Unity 2022.3.4 编译通过。

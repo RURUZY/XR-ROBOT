@@ -25,9 +25,10 @@ using RosMessageTypes.Nav;
 /// Like the vendor walker/Direct controller, KAT availability uses connected and
 /// finite input checks. lastUpdateTimePoint is logged, not assumed to be a heartbeat.
 /// This cannot detect a SDK that falsely reports connected while replaying data.
-/// Heading feedback is wheel odometry (this Husky fuses no IMU) corrected
-/// toward the SLAM yaw when a fresh ISlamHeadingSource is present. This also
-/// cancels the false yaw the wheel encoders report while reversing straight.
+/// Heading feedback (headingSource): the Jetson lidar gyro's yaw_odom by default,
+/// extrapolated by yaw_rate and gated by heading_age_s; until the server sends it
+/// (FAST_POSE=1) the wheel odometry (this Husky fuses no IMU) corrected toward
+/// SLAM yaw. Either cancels the false yaw the encoders report while reversing.
 /// Transients (EKF/frame jump, body-yaw glitch, invalid reading) resync or
 /// re-anchor the reference by themselves -- a short dropout keeps the pending
 /// turn. A stable new body sensor origin preserves accepted intent without
@@ -127,11 +128,17 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     [Tooltip("Invalid heading stops turning; walking stays independent.")]
     public float maxBodyTiltFromHorizontalDeg = 70f;
 
-    [Header("SLAM heading correction")]
-    [Tooltip("This Husky fuses no IMU, so /odometry/filtered heading is wheels only and drifts with skid on every pivot. On: wheel odometry stays the fast feedback and the SLAM (lidar-inertial) yaw slowly removes that drift. Without fresh SLAM it falls back to odometry only.")]
-    public bool useSlamHeadingCorrection = true;
-    [Tooltip("Component implementing ISlamHeadingSource (LivoscanDataSource). Empty: the first active one in the scene.")]
+    public enum HeadingSource { WheelOdometry, WheelPlusSlam, JetsonGyro }
+
+    [Header("Heading source")]
+    [Tooltip("WheelOdometry: /odometry/filtered only (wheels; this Husky fuses no IMU). WheelPlusSlam: wheels corrected toward SLAM yaw. JetsonGyro: the Jetson's lidar gyro (pose yaw_odom/yaw_rate/heading_age_s, FAST_POSE=1); until those fields have arrived it runs as WheelPlusSlam.")]
+    public HeadingSource headingSource = HeadingSource.JetsonGyro;
+    [Tooltip("Component implementing ISlamHeadingSource / IGyroHeadingSource (LivoscanDataSource). Empty: the first active one in the scene.")]
     public MonoBehaviour slamHeadingSource;
+    [Tooltip("JetsonGyro: stop turning when no new heading for this long, or heading_age_s exceeds it. Walking continues.")]
+    public float gyroHeadingMaxAgeSeconds = 0.2f;
+
+    [Header("SLAM heading correction (WheelPlusSlam)")]
     [Tooltip("Time constant for pulling odometry heading toward SLAM, seconds. Short enough to follow the false yaw the encoders report while reversing (about 6 deg/s in the Sept bags).")]
     public float slamCorrectionTime = 0.6f;
     [Tooltip("SLAM pose delay beyond the age the server reports, seconds. Measured about 0.2 s against odometry receipt on 14 Oct.")]
@@ -188,22 +195,40 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     public double OdometryBacklogSeconds => feedbackFreshness.BacklogSeconds;
     public bool HeadingCalibrated => headingCalibrated;
     public bool IsControlActive => isActiveAndEnabled && enableRobotControl && activationEnabled && !emergencyStopEngaged;
-    public bool HasUsableHeading => isActiveAndEnabled && headingCalibrated && bodyHeadingUsable && HasFreshOdometry;
+    public bool HasUsableHeading => isActiveAndEnabled && headingCalibrated && bodyHeadingUsable && TurnHeadingFresh;
+    /// <summary>The source in use: JetsonGyro falls back to WheelPlusSlam until the gyro
+    /// fields have arrived, and never switches back after that (the frames differ).</summary>
+    public HeadingSource ActiveHeadingSource => headingSource == HeadingSource.JetsonGyro && !gyroHeading.HasData
+        ? HeadingSource.WheelPlusSlam : headingSource;
+    public bool UsingGyroHeading => ActiveHeadingSource == HeadingSource.JetsonGyro;
+    public bool GyroHeadingFresh => gyroHeading.IsFresh(Time.realtimeSinceStartup);
+    /// <summary>Fresh odometry is still required in every mode: it is the health check
+    /// of the ROS link that /cmd_vel travels over. JetsonGyro also needs a fresh gyro.</summary>
+    private bool TurnHeadingFresh => HasFreshOdometry && (!UsingGyroHeading || GyroHeadingFresh);
+    private float RobotYawRateDegPerSec => UsingGyroHeading ? (float)gyroHeading.YawRateDegPerSec : measuredRobotYawRate;
     // The TARGET follows the FILTERED body turn, not the raw one: the raw angle
     // carries whole-degree quantization plus several degrees of gait sway, and
     // feeding that straight into the setpoint is what made the robot twitch and
     // wander while the operator was only stepping. A low-pass on an
     // accumulating value is a lag, so a finished turn still lands on the same
     // 1:1 angle.
-    // Target and heading are both in the SLAM-corrected frame (odometry yaw +
-    // SlamCorrectionDeg). MediaMtxWhepReceiver applies the same correction to
-    // its heading, so displays converting this target stay consistent.
+    // Target and heading are both in the active source's frame. HeadingOffsetDeg
+    // converts odometry yaw into it; MediaMtxWhepReceiver adds the same offset to
+    // its own odometry heading, so displays converting this target stay consistent.
     public double DesiredRobotYawDeg => TargetHeading;
     public double CorrectedRobotYawDeg => CorrectedRobotYaw;
-    public double SlamCorrectionDeg => useSlamHeadingCorrection ? slamCorrector.CorrectionDeg : 0.0;
+    public double HeadingOffsetDeg => CorrectedRobotYaw - robotUnwrapped;
+    public double SlamCorrectionDeg => ActiveHeadingSource == HeadingSource.WheelPlusSlam ? slamCorrector.CorrectionDeg : 0.0;
     public string SlamHeadingStatus { get; private set; } = "SLAM OFF";
+    public string HeadingSourceStatus => UsingGyroHeading
+        ? (GyroHeadingFresh ? "GYRO OK" : "GYRO STALE (TURN OFF)")
+        : ActiveHeadingSource == HeadingSource.WheelPlusSlam
+            ? (headingSource == HeadingSource.JetsonGyro ? "NO GYRO FIELDS / " : "") + SlamHeadingStatus
+            : "WHEEL ODOMETRY ONLY";
     private double TargetHeading => robotReference + headingSign * filteredBodyTurnDeg;
-    private double CorrectedRobotYaw => robotUnwrapped + SlamCorrectionDeg;
+    /// <summary>The control heading: odometry, odometry + SLAM correction, or the gyro.</summary>
+    private double CorrectedRobotYaw => UsingGyroHeading ? gyroHeading.HeadingAt(Time.realtimeSinceStartup)
+        : robotUnwrapped + SlamCorrectionDeg;
     public double HeadingErrorDeg
     {
         get
@@ -239,7 +264,9 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     private float progressStartTime, progressDirection;
     private readonly SlamHeadingCorrector slamCorrector = new SlamHeadingCorrector();
     private ISlamHeadingSource slamSource;
+    private IGyroHeadingSource gyroSource;
     private MonoBehaviour slamSourceBehaviour;
+    private readonly GyroHeadingTracker gyroHeading = new GyroHeadingTracker();
     private int lastSlamSequence = -1;
     private float nextSlamSourceSearchTime;
 
@@ -308,7 +335,8 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         lastOdometryStamp = double.NegativeInfinity;
         slamCorrector.Reset();
         lastSlamSequence = -1;
-        SlamHeadingStatus = useSlamHeadingCorrection ? "NO SLAM" : "SLAM OFF";
+        gyroHeading.Reset();
+        SlamHeadingStatus = headingSource == HeadingSource.WheelOdometry ? "SLAM OFF" : "NO SLAM";
         ResetAllState();
     }
 
@@ -320,7 +348,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         activationEnabled = startActivated;
         status = activationEnabled ? "ACTIVE" : "PRESS TRIGGER TO START";
         if (enableDebugLog)
-            Debug.Log($"[KAT DIRECT ANGLE] Configuration: forwardMax={maxForwardSpeed:F2} m/s, reverseMax={maxReverseSpeed:F2} m/s, angularMax={maxAngularSpeed:F2} rad/s, slamCorrection={useSlamHeadingCorrection}.");
+            Debug.Log($"[KAT DIRECT ANGLE] Configuration: forwardMax={maxForwardSpeed:F2} m/s, reverseMax={maxReverseSpeed:F2} m/s, angularMax={maxAngularSpeed:F2} rad/s, headingSource={headingSource}.");
     }
 
     private void OnOdometry(OdometryMsg message)
@@ -391,7 +419,8 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
         // True reference discontinuities preserve the pending relative turn.
         // Long gaps discard it because orientation alone cannot recover turns.
-        if (hadOdometry && !continuous && headingCalibrated)
+        // With the gyro as heading, odometry is only logged: its frame is irrelevant.
+        if (hadOdometry && !continuous && headingCalibrated && !UsingGyroHeading)
         {
             watchingTurnProgress = false;
             if (longGap)
@@ -434,7 +463,9 @@ public class KatHuskyDirectAngleController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        // Keep the correction warm while paused, so activation starts from it.
+        // Keep the heading sources warm while paused, so activation starts from them.
+        FindHeadingSource();
+        UpdateGyroHeading();
         UpdateSlamHeading();
         if (StopForExpiredFeedback()) return;
         KATNativeSDK.TreadMillData data;
@@ -540,7 +571,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         {
             InvalidateHeading("INVALID BODY HEADING (TURN OFF)");
         }
-        if (!headingCalibrated && hasRawBodyYaw && bodyHeadingUsable && HasFreshOdometry)
+        if (!headingCalibrated && hasRawBodyYaw && bodyHeadingUsable && TurnHeadingFresh)
             CalibrateHeading();
 
         float forward = FilterForward(lastRawForward);
@@ -555,7 +586,11 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             : RestartStatus;
         HuskyControlTrace.Record("request", "KAT DirectAngle", cmdVelTopic, controlInputSequence,
             linear, angular, DesiredRobotYawDeg, HeadingErrorDeg, activationEnabled, HasUsableHeading, status,
-            SlamCorrectionDeg, SlamHeadingStatus);
+            SlamCorrectionDeg, SlamHeadingStatus, ActiveHeadingSource.ToString(),
+            gyroHeading.HasData ? gyroHeading.HeadingAt(Time.realtimeSinceStartup) : double.NaN,
+            gyroHeading.HasData ? gyroHeading.YawRateDegPerSec : double.NaN, robotUnwrapped,
+            gyroHeading.HasData ? gyroHeading.TotalAgeSeconds(Time.realtimeSinceStartup) : double.NaN,
+            gyroHeading.LastSourceTime, gyroHeading.HasData ? gyroHeading.LastReceiveTime : double.NaN);
         PublishIfDue(linear, angular);
         float debugRawBodyYawDeg = hasRawBodyYaw ? lastRawBodyYawDeg : float.NaN;
         LogIfDue(debugRawBodyYawDeg, linear, angular);
@@ -793,6 +828,14 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             turnStatus = headingCalibrated ? "ODOMETRY STALE (TURN OFF)" : "WAITING FOR ODOMETRY (TURN OFF)";
             return 0f;
         }
+        if (UsingGyroHeading && !GyroHeadingFresh)
+        {
+            // Walking continues. A short gap keeps the target (the gyro heading
+            // is continuous); a long one re-anchors in UpdateGyroHeading.
+            watchingTurnProgress = false;
+            turnStatus = "GYRO HEADING STALE (TURN OFF)";
+            return 0f;
+        }
         if (!headingCalibrated || !bodyHeadingUsable) return 0f;
         double error = HeadingErrorDeg;
         // Human rotation can outrun the chassis by a wide margin. Never discard
@@ -825,7 +868,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     {
         if (Mathf.Abs(error) <= headingToleranceDeg) return 0f;
         float direction = Mathf.Sign(error);
-        float approachingRate = Mathf.Max(0f, direction * measuredRobotYawRate);
+        float approachingRate = Mathf.Max(0f, direction * RobotYawRateDegPerSec);
         float remaining = Mathf.Max(0f, Mathf.Abs(error)
             - approachingRate * Mathf.Max(turnBrakingLookaheadTime, 0f));
         remaining = Mathf.Min(remaining, Mathf.Max(maxHeadingErrorDeg, 5f));
@@ -930,22 +973,48 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         if (lastPublishedAngular != 0f) Publish(lastPublishedLinear, 0f);
     }
 
+    private void FindHeadingSource()
+    {
+        if (headingSource == HeadingSource.WheelOdometry) return;
+        if (slamSourceBehaviour != null && (slamSourceBehaviour is ISlamHeadingSource
+            || slamSourceBehaviour is IGyroHeadingSource)) return;
+        float now = Time.realtimeSinceStartup;
+        if (slamHeadingSource != null) slamSourceBehaviour = slamHeadingSource;
+        else if (now >= nextSlamSourceSearchTime)
+        {
+            nextSlamSourceSearchTime = now + 2f;
+            foreach (MonoBehaviour candidate in FindObjectsOfType<MonoBehaviour>())
+                if (candidate is ISlamHeadingSource || candidate is IGyroHeadingSource) { slamSourceBehaviour = candidate; break; }
+        }
+        slamSource = slamSourceBehaviour as ISlamHeadingSource;
+        gyroSource = slamSourceBehaviour as IGyroHeadingSource;
+    }
+
+    private void UpdateGyroHeading()
+    {
+        if (headingSource != HeadingSource.JetsonGyro || slamSourceBehaviour == null || gyroSource == null) return;
+        if (!gyroSource.TryGetGyroHeading(out int sequence, out double yawDeg, out double rateDegPerSec,
+                out float headingAge, out float receiveTime, out double sourceTime)) return;
+        bool wasUsingGyro = UsingGyroHeading;
+        gyroHeading.MaxAgeSeconds = Mathf.Max(gyroHeadingMaxAgeSeconds, 0.02f);
+        gyroHeading.ResyncGapSeconds = Mathf.Max(turnResyncGraceTime, gyroHeading.MaxAgeSeconds);
+        if (!gyroHeading.Update(sequence, yawDeg, rateDegPerSec, headingAge, receiveTime, sourceTime, out bool longGap))
+            return;
+        // Switching frames (first gyro sample after a WheelPlusSlam fallback) or a
+        // pause long enough to have missed turning: start from the current heading.
+        if (headingCalibrated && (!wasUsingGyro || longGap))
+            ReanchorTurnTarget(!wasUsingGyro ? "GYRO HEADING AVAILABLE / TARGET RE-ANCHORED"
+                : "GYRO HEADING GAP / TARGET RE-ANCHORED");
+    }
+
     private void UpdateSlamHeading()
     {
-        if (!useSlamHeadingCorrection) { SlamHeadingStatus = "SLAM OFF"; return; }
-        float now = Time.realtimeSinceStartup;
-        if (slamSourceBehaviour == null || !(slamSourceBehaviour is ISlamHeadingSource))
+        if (ActiveHeadingSource != HeadingSource.WheelPlusSlam)
         {
-            slamSource = null;
-            if (slamHeadingSource != null) slamSourceBehaviour = slamHeadingSource;
-            else if (now >= nextSlamSourceSearchTime)
-            {
-                nextSlamSourceSearchTime = now + 2f;
-                foreach (MonoBehaviour candidate in FindObjectsOfType<MonoBehaviour>())
-                    if (candidate is ISlamHeadingSource) { slamSourceBehaviour = candidate; break; }
-            }
-            slamSource = slamSourceBehaviour as ISlamHeadingSource;
+            SlamHeadingStatus = UsingGyroHeading ? "SLAM NOT USED (GYRO)" : "SLAM OFF";
+            return;
         }
+        float now = Time.realtimeSinceStartup;
         if (slamSource == null || !slamSource.TryGetLatestYaw(out int sequence, out double yawDeg,
                 out float receiveTime, out float ageSeconds))
         {
@@ -1226,7 +1295,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             || !Finite(linear) || !Finite(angular)) linear = angular = 0f;
         if (!feedbackFreshness.IsFresh(Time.realtimeSinceStartup, Mathf.Max(odometryTimeout, 0.05f)))
             linear = angular = 0f;
-        if (!headingCalibrated || !bodyHeadingUsable || !HasFreshOdometry) angular = 0f;
+        if (!headingCalibrated || !bodyHeadingUsable || !TurnHeadingFresh) angular = 0f;
         linear = Mathf.Clamp(linear, -Mathf.Max(maxReverseSpeed, 0f), Mathf.Max(maxForwardSpeed, 0f));
         angular = Mathf.Clamp(angular, -Mathf.Min(Mathf.Max(maxAngularSpeed, 0f), 2f), Mathf.Min(Mathf.Max(maxAngularSpeed, 0f), 2f));
         if (angular == 0f) LiveTurnDemand = CorrectionTurnDemand = 0f;
@@ -1251,9 +1320,12 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             $"InputMagnitude={new Vector2(lastRawMoveSpeed.x, lastRawMoveSpeed.z).magnitude:F3} " +
             $"RawFwd={lastRawForward:F3} FilteredFwd={filteredForwardSpeed:F3} PulseStep={moveSpeedPulseActive} Step={rawStepSignal} StepDrive={stepInPlaceActive} MoveSpeed=({lastRawMoveSpeed.x:F3},{lastRawMoveSpeed.y:F3},{lastRawMoveSpeed.z:F3}) " +
             $"BodyRaw={rawBodyYawDeg:F1} YawRate={filteredYawRateDegPerSec:F1}deg/s " +
-            $"Linear={linear:F3} Angular={angular:F3} AngularCommand={lastPublishedAngular:F3} RobotYawRate={measuredRobotYawRate:F1}deg/s LiveTurn={LiveTurnDemand:F3} CorrectionTurn={CorrectionTurnDemand:F3} | BodyTurn={BodyTurnDeg:F1} TargetTurn={TargetTurnDeg:F1} RobotTurn={RobotTurnDeg:F1} Target={DesiredRobotYawDeg:F1} Error={HeadingErrorDeg:F1} " +
+            $"Linear={linear:F3} Angular={angular:F3} AngularCommand={lastPublishedAngular:F3} RobotYawRate={RobotYawRateDegPerSec:F1}deg/s WheelYawRate={measuredRobotYawRate:F1}deg/s LiveTurn={LiveTurnDemand:F3} CorrectionTurn={CorrectionTurnDemand:F3} | BodyTurn={BodyTurnDeg:F1} TargetTurn={TargetTurnDeg:F1} RobotTurn={RobotTurnDeg:F1} Target={DesiredRobotYawDeg:F1} Error={HeadingErrorDeg:F1} " +
             $"Robot={robotYawDeg:F1} Fresh={HasFreshOdometry} Turn=[{turnStatus}] KatStamp={lastKatTimestamp:R} " +
-            $"SlamCorrection={SlamCorrectionDeg:F1} Slam=[{SlamHeadingStatus}]"
+            $"HeadingSource={ActiveHeadingSource} [{HeadingSourceStatus}] SlamCorrection={SlamCorrectionDeg:F1} " +
+            $"GyroYaw={(gyroHeading.HasData ? gyroHeading.HeadingAt(Time.realtimeSinceStartup) : double.NaN):F1} " +
+            $"GyroRate={(gyroHeading.HasData ? gyroHeading.YawRateDegPerSec : double.NaN):F1}deg/s " +
+            $"GyroAge={(gyroHeading.HasData ? gyroHeading.TotalAgeSeconds(Time.realtimeSinceStartup) : double.NaN):F3}s"
         );
 
         if (hasMiniSExtra)

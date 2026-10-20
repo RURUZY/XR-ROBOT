@@ -19,7 +19,7 @@ using UnityEngine.Networking;
 
 [DefaultExecutionOrder(-100)]   // update the smoothed pose before any view reads it
 [DisallowMultipleComponent]
-public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource
+public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadingSource
 {
     [Tooltip("Jetson running scripts/xr_bridge_server.py")]
     public string server = "http://192.168.2.22:8770";
@@ -33,7 +33,8 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource
     public float poseTimeout = 2f;
 
     [Serializable] class Envelope { public string type; }
-    [Serializable] class PoseMsg { public string type; public double t; public float[] position; public float yaw; public bool localized; public float age_s; }
+    [Serializable] class PoseMsg { public string type; public double t; public float[] position; public float yaw; public bool localized; public float age_s;
+        public double yaw_odom; public double yaw_rate; public float heading_age_s; }
     [Serializable] public class ObjectMsg { public int id; public string label; public float[] center; public float[] size; public float yaw; public float confidence; public int observations; }
     [Serializable] class ObjectsMsg { public string type; public int seq; public ObjectMsg[] objects; }
 
@@ -73,6 +74,22 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource
     {
         sequence = poseSequence; yawDeg = rawMapYawDeg; receiveTime = lastPoseTime; sourceAgeSeconds = lastPoseAgeS;
         return HasPose && isActiveAndEnabled;
+    }
+
+    // Gyro turn heading (yaw_odom / yaw_rate / heading_age_s), sent only when the
+    // server runs with FAST_POSE=1. Not relocalised: control and panorama only;
+    // the minimap keeps using the map-frame yaw above.
+    public bool HasGyroHeading { get; private set; }
+    int gyroSequence;
+    double gyroYawDeg, gyroRateDegPerSec, gyroSourceTime = double.NaN, lastGyroT = double.NaN, lastGyroYawRad = double.NaN;
+    float gyroHeadingAgeS, gyroReceiveTime;
+
+    public bool TryGetGyroHeading(out int sequence, out double yawOdomDeg, out double yawRateDegPerSec,
+        out float headingAgeSeconds, out float receiveTime, out double sourceTime)
+    {
+        sequence = gyroSequence; yawOdomDeg = gyroYawDeg; yawRateDegPerSec = gyroRateDegPerSec;
+        headingAgeSeconds = gyroHeadingAgeS; receiveTime = gyroReceiveTime; sourceTime = gyroSourceTime;
+        return HasGyroHeading && isActiveAndEnabled;
     }
     bool loggedSocketError, loggedMapError, loggedParseError;
 
@@ -209,6 +226,20 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource
         targetYawDeg = -p.yaw * Mathf.Rad2Deg;
         rawMapYawDeg = p.yaw * Mathf.Rad2Deg;
         poseSequence++;
+        // All three gyro fields or none (old server / FAST_POSE off). The server
+        // resends the last pose, so a repeated (t, yaw_odom) is not a new heading.
+        if (json.Contains("\"yaw_odom\"") && json.Contains("\"yaw_rate\"") && json.Contains("\"heading_age_s\"")
+            && !(p.t == lastGyroT && p.yaw_odom == lastGyroYawRad))
+        {
+            lastGyroT = p.t; lastGyroYawRad = p.yaw_odom;
+            gyroYawDeg = p.yaw_odom * Mathf.Rad2Deg;
+            gyroRateDegPerSec = p.yaw_rate * Mathf.Rad2Deg;
+            gyroHeadingAgeS = float.IsNaN(p.heading_age_s) ? float.PositiveInfinity : Mathf.Max(p.heading_age_s, 0f);
+            gyroSourceTime = p.t;
+            gyroReceiveTime = Time.realtimeSinceStartup;
+            gyroSequence++;
+            HasGyroHeading = true;
+        }
         // Snap on the first pose or a relocalisation jump instead of sliding across the map.
         if (!HasPose || (targetPosition - RobotPosition).sqrMagnitude > 4f)
         {

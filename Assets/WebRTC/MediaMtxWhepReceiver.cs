@@ -43,7 +43,7 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
     [Range(0f, 2f)] public float videoHeadingDelaySeconds = 0f;
 
     [Header("Corrected heading and automatic alignment")]
-    [Tooltip("Add the KAT controller's SLAM heading correction to the odometry yaw. Wheel-only odometry reports false yaw while reversing straight, which used to turn the panorama.")]
+    [Tooltip("Use the KAT controller's control heading (its headingSource: SLAM-corrected wheels or the Jetson gyro) instead of raw wheel odometry. Wheel-only odometry reports false yaw while reversing straight, which used to turn the panorama.")]
     public bool useSlamCorrectedHeading = true;
     [Tooltip("Source of the correction. Empty: the one in the scene.")]
     public KatHuskyDirectAngleController headingCorrectionSource;
@@ -69,8 +69,11 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
     private bool RobotFixedView => !compensateRobotHeading;
     public float RobotWorldYawDeg => RobotFixedView ? RobotViewHeading.Wrap(calibrationWorldForwardYaw)
         : WorldYawForRosHeading(CurrentRobotYaw);
+    // Offset from odometry yaw to the KAT controller's control heading (SLAM-corrected
+    // wheels, or the Jetson gyro's yaw_odom), so the panorama, body frame, target
+    // arrow and HUD all use the same heading as turning. The minimap keeps map yaw.
     public float HeadingCorrectionDeg => useSlamCorrectedHeading && headingCorrectionSource != null
-        && headingCorrectionSource.isActiveAndEnabled ? (float)headingCorrectionSource.SlamCorrectionDeg : 0f;
+        && headingCorrectionSource.isActiveAndEnabled ? (float)headingCorrectionSource.HeadingOffsetDeg : 0f;
     private float CurrentRobotYaw => latestRobotYaw + HeadingCorrectionDeg;
     // Consumers must check HasCalibratedHeading before treating this conversion as valid.
     public float WorldYawForRosHeading(double rosYawDeg) => RobotViewHeading.WorldYaw(calibrationWorldForwardYaw,

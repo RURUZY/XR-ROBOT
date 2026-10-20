@@ -20,7 +20,7 @@ partial class Program
     static float RunSlamLoop(bool useSlam, float odomScale, Func<int, float> body, int ticks, out float maxActual, out float displayMismatch)
     {
         New();
-        c.maxAngularSpeed = 1f; c.nearHeadingKp = 1f; c.useSlamHeadingCorrection = useSlam;
+        c.maxAngularSpeed = 1f; c.nearHeadingKp = 1f; c.headingSource = useSlam ? KatHuskyDirectAngleController.HeadingSource.WheelPlusSlam : KatHuskyDirectAngleController.HeadingSource.WheelOdometry;
         var slam = new SlamStub(); c.slamHeadingSource = slam;
         float actual = 0, velocity = 0; maxActual = 0;
         var odomDelay = new Queue<float>(); for (int i = 0; i < 5; i++) odomDelay.Enqueue(0);
@@ -78,7 +78,7 @@ partial class Program
             // reported about +6 deg/s of yaw that never happened.
             float Run(bool useSlam)
             {
-                New(); c.maxAngularSpeed = 1f; c.nearHeadingKp = .7f; c.useSlamHeadingCorrection = useSlam;
+                New(); c.maxAngularSpeed = 1f; c.nearHeadingKp = .7f; c.headingSource = useSlam ? KatHuskyDirectAngleController.HeadingSource.WheelPlusSlam : KatHuskyDirectAngleController.HeadingSource.WheelOdometry;
                 var slam = new SlamStub(); c.slamHeadingSource = slam;
                 float actual = 0, velocity = 0, phantom = 0;
                 var odomDelay = new Queue<float>(); for (int i = 0; i < 5; i++) odomDelay.Enqueue(0);
