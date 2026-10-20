@@ -7,13 +7,34 @@ using System;
 /// </summary>
 public interface IGyroHeadingSource
 {
-    /// <param name="sequence">Increments once per new (t, yaw_odom) pair.</param>
+    /// <param name="sequence">Increments once per new heading (new heading_t; every message on a server without it).</param>
     /// <param name="headingAgeSeconds">heading_age_s at send time (not age_s).</param>
     /// <param name="receiveTime">Time.realtimeSinceStartup when the message was taken in.</param>
     /// <param name="sourceTime">The message's t, for link-latency logging.</param>
     /// <returns>false while the server has never sent the gyro fields.</returns>
     bool TryGetGyroHeading(out int sequence, out double yawOdomDeg, out double yawRateDegPerSec,
         out float headingAgeSeconds, out float receiveTime, out double sourceTime);
+}
+
+/// <summary>
+/// Whether a pose message carries a new gyro heading. Dedupe on heading_t (the
+/// IMU stamp of that heading, same clock as t), never on (t, yaw_odom): with SLAM
+/// stopped t freezes and with the robot standing still yaw_odom freezes, so that
+/// pair stops changing, every message looks like a repeat, the heading goes stale
+/// after 0.2 s and turning locks (10-20 Jetson replay: 1 distinct pair in 1138
+/// messages). A server without heading_t: every message counts as new and only
+/// heading_age_s decides freshness (it grows when the server's heading stalls).
+/// </summary>
+public static class GyroHeadingDedupe
+{
+    public static bool IsNewHeading(bool hasHeadingT, double headingT, ref double lastHeadingT)
+    {
+        if (!hasHeadingT) return true;
+        if (double.IsNaN(headingT) || double.IsInfinity(headingT)) return true;
+        if (headingT == lastHeadingT) return false;
+        lastHeadingT = headingT;
+        return true;
+    }
 }
 
 /// <summary>

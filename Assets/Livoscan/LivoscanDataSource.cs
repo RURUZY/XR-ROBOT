@@ -34,7 +34,7 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadin
 
     [Serializable] class Envelope { public string type; }
     [Serializable] class PoseMsg { public string type; public double t; public float[] position; public float yaw; public bool localized; public float age_s;
-        public double yaw_odom; public double yaw_rate; public float heading_age_s; }
+        public double yaw_odom; public double yaw_rate; public double heading_t; public float heading_age_s; }
     [Serializable] public class ObjectMsg { public int id; public string label; public float[] center; public float[] size; public float yaw; public float confidence; public int observations; }
     [Serializable] class ObjectsMsg { public string type; public int seq; public ObjectMsg[] objects; }
 
@@ -81,7 +81,7 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadin
     // the minimap keeps using the map-frame yaw above.
     public bool HasGyroHeading { get; private set; }
     int gyroSequence;
-    double gyroYawDeg, gyroRateDegPerSec, gyroSourceTime = double.NaN, lastGyroT = double.NaN, lastGyroYawRad = double.NaN;
+    double gyroYawDeg, gyroRateDegPerSec, gyroSourceTime = double.NaN, lastHeadingT = double.NaN;
     float gyroHeadingAgeS, gyroReceiveTime;
 
     public bool TryGetGyroHeading(out int sequence, out double yawOdomDeg, out double yawRateDegPerSec,
@@ -226,12 +226,11 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadin
         targetYawDeg = -p.yaw * Mathf.Rad2Deg;
         rawMapYawDeg = p.yaw * Mathf.Rad2Deg;
         poseSequence++;
-        // All three gyro fields or none (old server / FAST_POSE off). The server
-        // resends the last pose, so a repeated (t, yaw_odom) is not a new heading.
+        // All three gyro fields or none (old server / FAST_POSE off). New headings
+        // are recognised by heading_t, not (t, yaw_odom): see GyroHeadingDedupe.
         if (json.Contains("\"yaw_odom\"") && json.Contains("\"yaw_rate\"") && json.Contains("\"heading_age_s\"")
-            && !(p.t == lastGyroT && p.yaw_odom == lastGyroYawRad))
+            && GyroHeadingDedupe.IsNewHeading(json.Contains("\"heading_t\""), p.heading_t, ref lastHeadingT))
         {
-            lastGyroT = p.t; lastGyroYawRad = p.yaw_odom;
             gyroYawDeg = p.yaw_odom * Mathf.Rad2Deg;
             gyroRateDegPerSec = p.yaw_rate * Mathf.Rad2Deg;
             gyroHeadingAgeS = float.IsNaN(p.heading_age_s) ? float.PositiveInfinity : Mathf.Max(p.heading_age_s, 0f);

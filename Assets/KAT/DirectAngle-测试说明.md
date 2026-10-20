@@ -1,5 +1,9 @@
 # DirectAngle：开环踏步 + 身体转角纠偏
 
+## 2026-10-20 晚：陀螺仪朝向改按 heading_t 去重
+
+Jetson 那边检查 `21b3ceb` 时发现：按 `(t, yaw_odom)` 去重，在"SLAM 断了加上车停着"时会锁死转向。`t` 不再变、`yaw_odom` 也冻结，之后的消息全被当成重复，0.2 s 后判定朝向不新鲜，车就再也转不了。现改为按 pose 消息新增的 `heading_t`（这次朝向对应的 IMU 时间戳）去重；旧服务没有 `heading_t` 时，每条消息都当成新的，只靠 `heading_age_s` 判断新鲜度。判断逻辑放在 `GyroHeadingDedupe`（GyroHeadingTracker.cs），`LivoscanDataSource` 和测试用的是同一份代码。新增回归测试：SLAM 断开、车静止 3 s 后转身 60°。按 `heading_t` 去重得到 58.4°，没有 `heading_t` 的旧服务也是 58.4°，旧的 `(t, yaw_odom)` 规则则锁死在 0.0°（用来证明测试确实能复现这个问题）。共 85 项通过，Unity 编译通过。
+
 ## 2026-10-20 下午：JetsonGyro 航向来源
 
 按 livoscan-mywork `docs/xr-unity/GYRO_HEADING_HANDOFF_20261020.md` 第 4 节（以下午更新为准）实现。`headingSource` 有三个选项：`WheelOdometry`、`WheelPlusSlam`、`JetsonGyro`（默认），取代原来的 `useSlamHeadingCorrection`。

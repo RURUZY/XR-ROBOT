@@ -24,8 +24,54 @@ class GyroStub : MonoBehaviour, IGyroHeadingSource, ISlamHeadingSource
     { sequence = SlamSeq; yawDeg = SlamYaw; receiveTime = SlamReceived; sourceAgeSeconds = SlamAge; return HasSlam; }
 }
 
+// Emulates LivoscanDataSource's dedupe on raw pose messages: t and yaw_odom as
+// sent, heading_t optional. legacyPairRule reproduces the old (t, yaw_odom) rule.
+class PoseMessageStub : MonoBehaviour, IGyroHeadingSource
+{
+    public bool legacyPairRule;
+    int seq; double yawDeg, rateDegPerSec, t, lastHeadingT = double.NaN, lastPairT = double.NaN, lastPairYaw = double.NaN;
+    float headingAge, received;
+    public void Receive(double tSec, double yawOdomDeg, double rate, bool hasHeadingT, double headingT, float age)
+    {
+        bool isNew = legacyPairRule ? !(tSec == lastPairT && yawOdomDeg == lastPairYaw)
+            : GyroHeadingDedupe.IsNewHeading(hasHeadingT, headingT, ref lastHeadingT);
+        lastPairT = tSec; lastPairYaw = yawOdomDeg;
+        if (!isNew) return;
+        seq++; yawDeg = yawOdomDeg; rateDegPerSec = rate; t = tSec; headingAge = age; received = Time.realtimeSinceStartup;
+    }
+    public bool TryGetGyroHeading(out int sequence, out double yawOdomDeg, out double yawRateDegPerSec,
+        out float headingAgeSeconds, out float receiveTime, out double sourceTime)
+    {
+        sequence = seq; yawOdomDeg = yawDeg; yawRateDegPerSec = rateDegPerSec; headingAgeSeconds = headingAge;
+        receiveTime = received; sourceTime = t; return seq > 0;
+    }
+}
+
 partial class Program
 {
+    // SLAM stopped (t frozen) and the robot standing still (yaw_odom frozen) for
+    // 3 s, heading_t advancing at 50 Hz; then the body turns 60 deg.
+    static float RunFrozenPoseTurn(bool legacyPairRule, bool sendHeadingT)
+    {
+        New();
+        c.maxAngularSpeed = 1f; c.nearHeadingKp = 1f;
+        c.headingSource = KatHuskyDirectAngleController.HeadingSource.JetsonGyro;
+        var pose = new PoseMessageStub { legacyPairRule = legacyPairRule }; c.slamHeadingSource = pose;
+        float actual = 0, velocity = 0, previous = 0;
+        var delay = new Queue<float>(); delay.Enqueue(0); delay.Enqueue(0);
+        for (int i = 1; i <= 1500; i++)
+        {
+            float measured = delay.Dequeue();
+            pose.Receive(1000.0, measured, (measured - previous) / .02f, sendHeadingT, 2000.0 + i * .02, .02f);
+            previous = measured;
+            Tick(i <= 150 ? 0 : MathF.Round(Math.Min((i - 150) * .02f * 30f, 60f)), actual);
+            velocity += (c.LastPublishedAngular * .9f - velocity) * (1 - MathF.Exp(-.02f / .25f));
+            actual += velocity * .02f * Mathf.Rad2Deg;
+            delay.Enqueue(actual);
+        }
+        return actual;
+    }
+
     // Chassis: 0.9 x command, 0.25 s lag. Wheel odometry is wrong by odomScale and
     // a phantom drift (deg/s); the gyro reports the true yaw 40 ms late at 50 Hz.
     static float RunGyroLoop(Func<int, float> body, float odomScale, float phantomDegPerSec, int ticks,
@@ -118,6 +164,23 @@ partial class Program
             k.Update(2, 10, 20, .3f, 2f, 0, out _);
             Assert(!k.IsFresh(2f), "heading_age_s above the limit accepted");
             Assert(!k.Update(2, 99, 0, 0, 3f, 0, out _), "duplicate sequence taken as new");
+        });
+
+        Test("frozen t and yaw_odom with advancing heading_t keeps turning available", () =>
+        {
+            float headingT = RunFrozenPoseTurn(false, true);
+            float oldServer = RunFrozenPoseTurn(false, false);
+            float legacy = RunFrozenPoseTurn(true, true);
+            Console.WriteLine($"  60 deg turn after 3 s still with SLAM stopped: dedupe on heading_t -> {headingT:F1} deg, " +
+                $"server without heading_t -> {oldServer:F1} deg, old (t, yaw_odom) rule -> {legacy:F1} deg");
+            Assert(Math.Abs(headingT - 60) <= 2, "heading_t dedupe locked turning: " + headingT);
+            Assert(Math.Abs(oldServer - 60) <= 2, "server without heading_t locked turning: " + oldServer);
+            Assert(Math.Abs(legacy) < 2, "test no longer reproduces the (t, yaw_odom) lock: " + legacy);
+            double last = double.NaN;
+            Assert(GyroHeadingDedupe.IsNewHeading(true, 5, ref last) && !GyroHeadingDedupe.IsNewHeading(true, 5, ref last)
+                && GyroHeadingDedupe.IsNewHeading(true, 5.02, ref last), "heading_t dedupe");
+            Assert(GyroHeadingDedupe.IsNewHeading(false, 0, ref last) && GyroHeadingDedupe.IsNewHeading(false, 0, ref last),
+                "without heading_t every message must count as new");
         });
 
         Test("without gyro fields the controller runs WheelPlusSlam", () =>
