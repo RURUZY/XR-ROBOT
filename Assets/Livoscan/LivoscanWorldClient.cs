@@ -166,7 +166,8 @@ public class LivoscanWorldClient : MonoBehaviour
             view.transform.localRotation = Quaternion.Euler(0f, -o.yaw * Mathf.Rad2Deg, 0f);
             view.transform.localScale = new Vector3(o.size[1], o.size[2], o.size[0]);   // (left, up, forward) extents
             var tm = labels[o.id];
-            tm.text = showConfidence ? $"{o.label} ({o.confidence:0.00})" : o.label;
+            var shown = o.ShownLabel;   // null: name hidden, box still drawn
+            tm.text = shown == null ? "" : showConfidence ? $"{shown} ({o.confidence:0.00})" : shown;
             tm.transform.localPosition = view.transform.localPosition + Vector3.up * (o.size[2] / 2f + labelHeight);
         }
         foreach (var id in new List<int>(objectViews.Keys))

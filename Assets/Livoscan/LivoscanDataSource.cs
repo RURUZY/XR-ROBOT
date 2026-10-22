@@ -35,7 +35,16 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadin
     [Serializable] class Envelope { public string type; }
     [Serializable] class PoseMsg { public string type; public double t; public float[] position; public float yaw; public bool localized; public float age_s;
         public double yaw_odom; public double yaw_rate; public double heading_t; public float heading_age_s; }
-    [Serializable] public class ObjectMsg { public int id; public string label; public float[] center; public float[] size; public float yaw; public float confidence; public int observations; }
+    [Serializable] public class ObjectMsg
+    {
+        public int id; public string label; public float[] center; public float[] size; public float yaw; public float confidence; public int observations;
+        // 2026-10-22 (xr-interface.md): name to show; null = second model disagreed, hide the text but keep the box.
+        // JsonUtility cannot tell null from missing, so presence is detected from the raw message text.
+        public string display_label; public string label_check;
+        [NonSerialized] public bool hasDisplayLabel;
+        // Old servers without display_label fall back to label.
+        public string ShownLabel => hasDisplayLabel ? (string.IsNullOrEmpty(display_label) ? null : display_label) : label;
+    }
     [Serializable] class ObjectsMsg { public string type; public int seq; public ObjectMsg[] objects; }
 
     // Map in Unity map-frame coordinates. Counters let views poll for changes.
@@ -202,6 +211,8 @@ public class LivoscanDataSource : MonoBehaviour, ISlamHeadingSource, IGyroHeadin
                 else if (type == "objects")
                 {
                     Objects = JsonUtility.FromJson<ObjectsMsg>(text).objects ?? new ObjectMsg[0];
+                    bool hasDisplayLabel = text.Contains("\"display_label\"");   // server sends it on every object or none
+                    foreach (var o in Objects) if (o != null) o.hasDisplayLabel = hasDisplayLabel;
                     ObjectsVersion++;
                 }
             }
