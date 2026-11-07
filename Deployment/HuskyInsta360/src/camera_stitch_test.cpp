@@ -160,13 +160,13 @@ private:
 
 // Gyro axes hidden from FlowState: bit 0 = x, 1 = y, 2 = z. Hiding only the
 // camera's vertical axis keeps shake/level stabilization but leaves heading
-// to Unity. INSTA360_GYRO_ZERO_AXES picks them (e.g. "z"); default all.
-// Default 4 = gyro z only. Pivoting the robot drives gyro z (measured
-// 14 Oct), so hiding it leaves heading to Unity while FlowState keeps
-// removing shake on x/y. Bit 3 (8) projects out the accelerometer's
-// gravity axis, but on the X5 the accelerometer axes differ from the
-// gyro axes (gravity reads along accel x), so do not use it.
-int g_zero_axes = 4;
+// to Unity. INSTA360_GYRO_ZERO_AXES picks them (e.g. "x"); default x.
+// Default 1 = gyro x only. Pivoting the robot drives gyro x (2 Nov: mean
+// |rate| x 0.33-0.59 rad/s while turning, y/z below 0.2; gravity also reads
+// along accel x). The 14 Oct note said z; with z hidden FlowState kept the
+// picture locked to the room while the robot turned. Bit 3 (8) projects out
+// the accelerometer's gravity axis.
+int g_zero_axes = 1;
 
 void HandleSignal(int) {
     keep_running = false;
@@ -315,11 +315,11 @@ int main() {
         g_zero_axes = (axes.find('x') != std::string::npos ? 1 : 0)
                     | (axes.find('y') != std::string::npos ? 2 : 0)
                     | (axes.find('z') != std::string::npos ? 4 : 0)
-                    | (axes.find('vertical') != std::string::npos ? 8 : 0);
+                    | (axes.find("vertical") != std::string::npos ? 8 : 0);
     }
     stitcher->EnableFlowState(true);
     std::cout << "FlowState on, gyro axes zeroed mask=" << g_zero_axes
-              << " (4 = gyro z only, default; 7 = all axes, picture rigid to camera)" << std::endl;
+              << " (1 = gyro x only, default; 7 = all axes, picture rigid to camera)" << std::endl;
     stitcher->SetOutputSize(2880, 1440);
     stitcher->SetStitchRealTimeDataCallback(
         [publisher](uint8_t* data[4],

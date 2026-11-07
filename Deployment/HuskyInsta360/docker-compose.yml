@@ -4,6 +4,13 @@ services:
     container_name: husky-insta360-mediamtx
     network_mode: host
     restart: unless-stopped
+    environment:
+      # Offer only the LAN address as WebRTC candidate. Otherwise sessions were
+      # seen pairing over 127.0.0.1 / docker bridge 172.18.0.1 and then dropping.
+      # Clients on other networks (e.g. 100.x VPN) need their address added here.
+      MTX_WEBRTCIPSFROMINTERFACES: "no"
+      MTX_WEBRTCADDITIONALHOSTS: "192.168.2.36"
+      MTX_WEBRTCLOCALTCPADDRESS: ":8189"
 
   insta360-test:
     build: .
@@ -20,10 +27,11 @@ services:
       __EGL_VENDOR_LIBRARY_FILENAMES: /usr/share/glvnd/egl_vendor.d/10_nvidia.json
       __GLX_VENDOR_LIBRARY_NAME: nvidia
       # FlowState stays on (the realtime stitcher crashes without it). Only the
-      # gyro axis the robot pivots about (z) is hidden from it, so it keeps
-      # removing shake but never turns the heading, which Unity compensates.
+      # gyro axis the robot pivots about (x, measured 2 Nov) is hidden from it, so
+      # it keeps removing shake but never turns the heading, which Unity compensates.
+      # "z" (used until 2 Nov) left the heading locked to the room.
       # "xyz" hides all axes (no stabilization); INSTA360_ZERO_GYRO "0" hides none.
-      INSTA360_GYRO_ZERO_AXES: "z"
+      INSTA360_GYRO_ZERO_AXES: "x"
     volumes:
       - type: bind
         source: /tmp/.X11-unix
