@@ -144,6 +144,11 @@ public class KatStatusHud : MonoBehaviour
             : headingSource != null && headingSource.HasFreshHeading
             ? $"{headingSource.RobotHeadingDeg:F1}°" : "UNAVAILABLE";
         statusText.text = $"Estimated heading: {heading}\n{mode}";
+        // Reverse drives blind (no rear obstacle protection): make it impossible to miss.
+        if (angleActive && angleController.ReverseModeEnabled)
+            statusText.text = "<color=#FF4040><b>!! REVERSE ON !!"
+                + (angleController.reverseModeLatch ? "  (press B to exit)" : "  (release B to stop)")
+                + "</b></color>\n" + statusText.text;
         if (angleActive)
         {
             if (angleController.IsControlActive && angleController.HasUsableHeading)

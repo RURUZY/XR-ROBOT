@@ -1466,7 +1466,7 @@ MonoBehaviour:
   useInsideSphereMaterial: 1
   flipVideoHorizontally: 1
   centerSphereOnMainCamera: 1
-  compensateRobotHeading: 0
+  compensateRobotHeading: 1
   panoramaHeadingMode: 1
   headingOdometryTopic: /odometry/filtered
   headingCompensationSign: 1
@@ -1485,6 +1485,7 @@ MonoBehaviour:
   autoReconnect: 1
   reconnectDelay: 2
   iceGatheringTimeout: 10
+  disconnectedReconnectDelay: 3
 --- !u!1 &706048410
 GameObject:
   m_ObjectHideFlags: 0
@@ -2104,13 +2105,6 @@ MonoBehaviour:
   responseExponent: 0.6
   forwardAttackTime: 0
   forwardReleaseTime: 0.15
-  headingTrackingMode: 0
-  oppositeDirectionHysteresisDeg: 5
-  enableHeadingSpeedAssist: 0
-  forwardSlowdownStartDeg: 20
-  forwardStopHeadingDeg: 75
-  forwardResumeHeadingDeg: 60
-  forwardAssistRecoveryTime: 0.3
   enableStepInPlaceDrive: 1
   stepInPlaceInput: 0.35
   stepSignalHoldTime: 0.1
@@ -2127,14 +2121,13 @@ MonoBehaviour:
   feedforwardOneToOne: 1
   turnResponseExponent: 1
   openLoopMaxAngularSpeed: 1.5708
-  maxAngularSpeed: 1
+  maxAngularSpeed: 0.6
   turnAcceleration: 2
   turnDeceleration: 3
   headingKp: 1.2
   nearHeadingKp: 0.7
   headingSlowZoneDeg: 15
   turnBrakingLookaheadTime: 0.35
-  limitTurnByStoppingDistance: 0
   maxHeadingCorrectionSpeed: 1.2
   headingToleranceDeg: 4
   maxHeadingErrorDeg: 120
@@ -2145,9 +2138,14 @@ MonoBehaviour:
   turnResyncGraceTime: 1
   bodyYawRecoveryStableTime: 0.3
   bodyYawRecoveryBandDeg: 3
+  confirmBodyJumpWithHeadset: 1
+  headsetConfirmLookbackSeconds: 1
+  headsetConfirmWindowSeconds: 0.3
+  headsetConfirmToleranceDeg: 30
   maxBodyTiltFromHorizontalDeg: 70
-  useSlamHeadingCorrection: 1
+  headingSource: 2
   slamHeadingSource: {fileID: 0}
+  gyroHeadingMaxAgeSeconds: 0.2
   slamCorrectionTime: 0.6
   slamExtraLatencySeconds: 0.2
   slamMaxPoseAgeSeconds: 0.5

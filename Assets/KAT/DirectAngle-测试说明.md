@@ -1,5 +1,17 @@
 # DirectAngle：开环踏步 + 身体转角纠偏
 
+## 2026-11-02：B 切换倒车，暂停后保留
+
+11-02 实车（`KAT_MiniS_20261102_144350_839_7f00c0`）在 184.6 s 和 191.0 s 两次进入倒车，0.4 s 和 1.0 s 后 `KAT INPUT LOST` 暂停，倒车被一起清掉；重新按扳机后还要再按 B，用起来像"B 要按好几次"。现改为：B 按一下切换倒车，Y、松扳机、KAT 输入丢失造成的暂停都保留倒车状态，暂停中按 B 也能切换；只有急停清除倒车。暂停期间不发运动指令，HUD 照常显示红色 `!! REVERSE ON !!`。这推翻了 10-22 "暂停即退出倒车"的规则，代价是重新激活后可能直接倒车，靠 HUD 提示。回归测试改为验证新行为并新增急停清除，共 95 项通过；Unity 编译和实车未验证。
+
+## 2026-10-22：头显确认 KAT 跳变；暂停时退出倒车
+
+10-21 实车（`KAT_MiniS_20261021_213032_203_8c2aa0`）共有 7 次身体角跳变，都被跳变保护丢掉了。对照头显朝向（`control_panorama.csv` 的 `head_world_yaw_deg`）后发现：137.2 s 那次是真转身，头 1 s 内转了 +101°，KAT 读数一直滞后，最后一步跳了 +90° 追上来，被丢掉后车没转；218.5 s（+123°）和 223.3 s（−131°）是 KAT 卡住约 0.7 s 后跳出错误读数，期间头的变化不到 10°，属于真故障。49/52/65/66 s 的几次也是故障。
+
+- **头显确认**（`BodyJumpConfirmation.cs`，`confirmBodyJumpWithHeadset`，默认开）：跳变发生后 0.3 s 内，比较从跳变前 1 s 到当前这段时间里身体和头显各转了多少。方向相同、相差不超过 30° 时，按真转身接受；其余情况照旧丢弃。跳变量可加减 360° 去匹配头显，所以转身超过 180° 时角度不会丢。只转头不转身不会触发这条逻辑（因为没有身体跳变）。没有头显相机（`Camera.main`）时照旧丢弃。参数（回看时间、确认窗口、容差）在 Inspector 中可调。
+- **倒车**：只要激活状态结束（按 Y、按 trigger 关闭、急停、KAT 输入丢失），就自动退出 REVERSE。10-21 那次在误按 B 之后持续了一分多钟。HUD 在倒车时第一行显示红色 `!! REVERSE ON !!`。`reverseModeLatch` 未改（场景中仍为按一下切换）；取消勾选就改成按住 B 才倒车。
+- 回归测试新增 9 项，共 94 项通过。其中一项用 10-21 实车数据回放，经过真实控制器后只有 137 s 那次被确认；没有该采集目录时跳过。Unity 2022.3.4 编译通过。实车验收尚未进行：快速转身 90°/180° 各 3 次，车都应跟上；只转头时车不转。
+
 ## 2026-10-20 晚：陀螺仪朝向改按 heading_t 去重
 
 Jetson 那边检查 `21b3ceb` 时发现：按 `(t, yaw_odom)` 去重，在"SLAM 断了加上车停着"时会锁死转向。`t` 不再变、`yaw_odom` 也冻结，之后的消息全被当成重复，0.2 s 后判定朝向不新鲜，车就再也转不了。现改为按 pose 消息新增的 `heading_t`（这次朝向对应的 IMU 时间戳）去重；旧服务没有 `heading_t` 时，每条消息都当成新的，只靠 `heading_age_s` 判断新鲜度。判断逻辑放在 `GyroHeadingDedupe`（GyroHeadingTracker.cs），`LivoscanDataSource` 和测试用的是同一份代码。新增回归测试：SLAM 断开、车静止 3 s 后转身 60°。按 `heading_t` 去重得到 58.4°，没有 `heading_t` 的旧服务也是 58.4°，旧的 `(t, yaw_odom)` 规则则锁死在 0.0°（用来证明测试确实能复现这个问题）。共 85 项通过，Unity 编译通过。
@@ -19,6 +31,8 @@ Jetson 那边检查 `21b3ceb` 时发现：按 `(t, yaw_odom)` 去重，在"SLAM 
 删除 `Current Direction` 模式、朝向速度辅助（`enableHeadingSpeedAssist` 及 4 个减速参数）、`oppositeDirectionHysteresisDeg`、`limitTurnByStoppingDistance`。场景里早就关闭了这些功能，删除后控制行为不变；场景中残留的序列化值会被 Unity 自动忽略。保留并统一了一项安全行为：KAT 断开超过恢复宽限期时，所有模式都要求松开再按扳机（以前只有导航模式这样做，"按住扳机才走"的模式会在 KAT 恢复后自行继续）。request 记录去掉 `unassisted_linear`、`forward_multiplier`、`heading_mode` 三列。HUD 原来显示导航辅助状态的一行，改为显示 SLAM 校正状态和校正量。删除 `NavigationTests.cs`，以及 RecoveryTraceTests 里导航模式专属的两项测试；共 78 项回归通过，Unity 2022.3.4 编译通过。
 
 ## 2026-10-14 傍晚：画面随车运动逐渐偏离，关闭相机 FlowState
+
+> 后续更正（2026-10-24 核对）：本节的"FlowState 默认关闭"已被替代。当前 `Deployment/HuskyInsta360/docker-compose.yml` 保持 FlowState 开启（注释：实时拼接关闭它会崩溃），用 `INSTA360_GYRO_ZERO_AXES: "z"` 屏蔽 z 轴陀螺仪，使画面不随相机陀螺仪转动航向。见 README 10-15 节。
 
 用户反馈：开始时标定正确，车动了以后画面会逐渐偏。15:55 那次的记录中，每 5 秒一段对比，全景球的转角和 SLAM 测到的车实际转角相差在 ±5° 以内，而且只是转弯中途的短暂偏差，所以 Unity 的补偿是对的。偏差来自视频内容本身：相机程序开启了 `EnableFlowState(true)`，用相机自身的陀螺仪处理画面朝向，画面不会 1:1 跟随车身转动，而 Unity 是按车的实际转角补偿的。`camera_stitch_test.cpp` 改为由环境变量 `INSTA360_FLOWSTATE` 和 `INSTA360_DIRECTION_LOCK` 控制，默认都关闭（`docker-compose.yml` 中设为 "0"），需要在机器人上重新构建一次镜像。关闭后画面不再自动保持水平。Windows 上无法编译，只能在机器人上构建验证。关闭以后要用 F6/F7 重新标定一次相机安装夹角。
 

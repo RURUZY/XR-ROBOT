@@ -104,6 +104,7 @@ partial class Program
         RunFeedbackFreshnessTests();
         RunSlamHeadingTests();
         RunGyroHeadingTests();
+        RunBodyJumpTests();
         Console.WriteLine(count+" tests passed (simulated, no robot connection).");
     }
 }

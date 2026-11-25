@@ -20,6 +20,8 @@ namespace UnityEngine
     public static class Debug { public static void Log(object s) {} public static void LogWarning(object s) {} }
     public struct Vector2 { public float x,y; public Vector2(float a,float b){x=a;y=b;} public float magnitude => MathF.Sqrt(x*x+y*y); }
     public struct Vector3 { public float x,y,z; public float sqrMagnitude=>x*x+y*y+z*z; public void Normalize(){float n=MathF.Sqrt(sqrMagnitude);x/=n;y/=n;z/=n;} public static Vector3 forward => new Vector3{z=1}; }
+    public class Transform { public Vector3 eulerAngles; }
+    public class Camera { public static Camera main; public Transform transform=new Transform(); }
     public struct Quaternion
     {
         public float x,y,z,w;

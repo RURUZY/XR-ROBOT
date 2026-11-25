@@ -125,6 +125,13 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     [Tooltip("A persistent body-yaw offset must stay within a small band for this duration before rebasing only the sensor. Already accepted turn intent is retained; motion during the invalid interval is unknown.")]
     public float bodyYawRecoveryStableTime = 0.3f;
     public float bodyYawRecoveryBandDeg = 3f;
+    [Tooltip("On a fast turn the KAT reading can lag, then catch up in one jump. Accept such a jump as a real turn when the headset turned the same way by a similar amount over the same interval; otherwise it stays a sensor glitch. Turning only the head never turns the robot.")]
+    public bool confirmBodyJumpWithHeadset = true;
+    [Tooltip("Body and headset turns are compared from this long before the jump (the KAT lag before catching up).")]
+    public float headsetConfirmLookbackSeconds = 1f;
+    [Tooltip("The headset must confirm within this time after the jump started.")]
+    public float headsetConfirmWindowSeconds = 0.3f;
+    public float headsetConfirmToleranceDeg = 30f;
     [Tooltip("Invalid heading stops turning; walking stays independent.")]
     public float maxBodyTiltFromHorizontalDeg = 70f;
 
@@ -189,10 +196,8 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     public float LiveTurnDemand { get; private set; }
     public float CorrectionTurnDemand { get; private set; }
     public float RobotYawDeg => robotYawDeg;
-    public bool HasOdometry => hasOdometry;
     public bool HasFreshOdometry => hasOdometry && odometryUsable
         && feedbackFreshness.IsFresh(Time.realtimeSinceStartup, Mathf.Max(odometryTimeout, 0.05f));
-    public double OdometryBacklogSeconds => feedbackFreshness.BacklogSeconds;
     public bool HeadingCalibrated => headingCalibrated;
     public bool IsControlActive => isActiveAndEnabled && enableRobotControl && activationEnabled && !emergencyStopEngaged;
     public bool HasUsableHeading => isActiveAndEnabled && headingCalibrated && bodyHeadingUsable && TurnHeadingFresh;
@@ -241,6 +246,9 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     public double TargetTurnDeg => headingCalibrated ? headingSign * filteredBodyTurnDeg : double.NaN;
     public double RobotTurnDeg => headingCalibrated ? CorrectedRobotYaw - robotReference : double.NaN;
     public string TurnStatus => turnStatus;
+    public bool ReverseModeEnabled => reverseModeEnabled;
+    /// <summary>Body-yaw jumps accepted as real turns because the headset confirmed them.</summary>
+    public int ConfirmedBodyJumps { get; private set; }
 
     private ROSConnection ros;
 
@@ -250,7 +258,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     private float robotYawDeg;
     private double robotUnwrapped, robotReference, bodyTurnDeg, filteredBodyTurnDeg;
     private float lastOdometryTime = -999f, headingSign;
-    private double lastOdometryStamp = double.NegativeInfinity;
     private string odomFrame, odomChildFrame;
     private bool headingCalibrated, previousRealign;
     private string turnStatus = "WAITING FOR HEADING";
@@ -298,6 +305,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
     private float bodyYawRejectStartTime = -1f;
     private float rejectedBodyStepLimit;
     private float recoveryCandidateYaw, recoveryCandidateSince = -1f;
+    private readonly BodyJumpConfirmation bodyJumpConfirmation = new BodyJumpConfirmation();
     private float measuredRobotYawRate;
     private float lastAngularPublishTime = -999f;
 
@@ -332,7 +340,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         hasOdometry = false;
         feedbackFreshness.Reset();
         odometryUsable = odometryClockReset = false;
-        lastOdometryStamp = double.NegativeInfinity;
         slamCorrector.Reset();
         lastSlamSequence = -1;
         gyroHeading.Reset();
@@ -377,7 +384,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         if (observation == RobotFeedbackFreshness.Observation.SourceReset)
         {
             odometryClockReset = true;
-            lastOdometryStamp = stamp;
             SuspendOdometry("ODOMETRY CLOCK RESET (TURN OFF)");
             PauseForRestart("ODOMETRY CLOCK RESET");
             return;
@@ -411,7 +417,6 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         robotYawDeg = yaw;
         odomFrame = message.header.frame_id;
         odomChildFrame = message.child_frame_id;
-        lastOdometryStamp = stamp;
         lastOdometryTime = Time.realtimeSinceStartup;
         hasOdometry = true;
         odometryUsable = true;
@@ -438,6 +443,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         // Sample button edges in Update rather than missing short presses between
         // physics ticks. A pause clears pulse holds and publishes zero immediately.
         StopForExpiredFeedback();
+        SampleHeadsetYaw();
         bool wasActive = activationEnabled;
         bool wasStopped = emergencyStopEngaged;
         bool wasReverse = reverseModeEnabled;
@@ -457,6 +463,10 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             ResetAllState();
             Publish(0f, 0f);
         }
+        // B toggles reverse and it is kept across pauses (Y, trigger off, KAT input
+        // lost): clearing it there made B look unresponsive after every KAT dropout
+        // (11-02). Only the emergency stop clears it. The HUD banner shows it while paused.
+        if (emergencyStopEngaged) reverseModeEnabled = false;
         if (wasReverse != reverseModeEnabled) ResetForwardIntent();
         previousRealign = realign;
     }
@@ -634,6 +644,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             lastBodyYawValidTime = now;
             bodyYawRejectStartTime = -1f;
             filteredYawRateDegPerSec = 0f;
+            bodyJumpConfirmation.ResetBody(now);
             return;
         }
 
@@ -661,6 +672,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             // tail into artificial live turn feedforward on recovery.
             filteredBodyTurnDeg = bodyTurnDeg;
             filteredYawRateDegPerSec = 0f;
+            bodyJumpConfirmation.ResetBody(now);
             turnStatus = "BODY SENSOR RESYNCED / ACCEPTED TARGET PRESERVED";
             if (enableDebugLog)
                 Debug.Log($"[KAT DIRECT ANGLE] {turnStatus}; pending={HeadingErrorDeg:F1} deg; movement during gap unknown.");
@@ -685,16 +697,29 @@ public class KatHuskyDirectAngleController : MonoBehaviour
                 bodyYawRejectStartTime = now;
                 rejectedBodyStepLimit = stepLimit;
             }
-            InvalidateHeading("BODY YAW JUMP (TURN OFF)");
-            if (enableDebugLog && now >= nextBodyYawWarningTime)
+            if (confirmBodyJumpWithHeadset && bodyJumpConfirmation.TryConfirm(bodyYawRejectStartTime, now, rawStep,
+                    out double confirmedStep, out double headTurn, out double bodyTurn))
             {
-                nextBodyYawWarningTime = now + 0.5f;
-                Debug.LogWarning($"[KAT DIRECT ANGLE] Skipped body yaw jump: step {rawStep:F1} deg over " +
-                    $"{elapsed * 1000f:F0} ms (limit {stepLimit:F1} deg). Sample dropped, turn target kept.");
+                // The KAT reading caught up with a real fast turn: keep it.
+                if (enableDebugLog)
+                    Debug.Log($"[KAT DIRECT ANGLE] Body yaw jump {confirmedStep:F1} deg confirmed by headset " +
+                        $"(body {bodyTurn:F1}, headset {headTurn:F1} deg over {headsetConfirmLookbackSeconds:F1} s); accepted as a turn.");
+                rawStep = (float)confirmedStep;
+                ConfirmedBodyJumps++;
             }
-            // Keep the accepted angle AND its time. Persistent rejection is
-            // handled by the last-valid-time grace check above.
-            return;
+            else
+            {
+                InvalidateHeading("BODY YAW JUMP (TURN OFF)");
+                if (enableDebugLog && now >= nextBodyYawWarningTime)
+                {
+                    nextBodyYawWarningTime = now + 0.5f;
+                    Debug.LogWarning($"[KAT DIRECT ANGLE] Skipped body yaw jump: step {rawStep:F1} deg over " +
+                        $"{elapsed * 1000f:F0} ms (limit {stepLimit:F1} deg). Sample dropped, turn target kept.");
+                }
+                // Keep the accepted angle AND its time. Persistent rejection is
+                // handled by the last-valid-time grace check above.
+                return;
+            }
         }
 
         bodyYawRejectStartTime = -1f;
@@ -703,6 +728,7 @@ public class KatHuskyDirectAngleController : MonoBehaviour
         lastBodyYawSampleTime = now;
         lastBodyYawValidTime = now;
         bodyHeadingUsable = true;
+        bodyJumpConfirmation.AddBody(now, rawStep);
         if (!headingCalibrated) return;
         bodyTurnDeg += rawStep;
 
@@ -1175,6 +1201,16 @@ public class KatHuskyDirectAngleController : MonoBehaviour
             emergencyStopEngaged = pressed;
         }
         lastEmergencyStopButton = pressed;
+    }
+
+    private void SampleHeadsetYaw()
+    {
+        bodyJumpConfirmation.LookbackSeconds = Mathf.Max(headsetConfirmLookbackSeconds, 0.1f);
+        bodyJumpConfirmation.WindowSeconds = Mathf.Max(headsetConfirmWindowSeconds, 0f);
+        bodyJumpConfirmation.ToleranceDeg = Mathf.Max(headsetConfirmToleranceDeg, 0f);
+        Camera head = Camera.main;
+        if (head == null) return;
+        bodyJumpConfirmation.AddHead(Time.realtimeSinceStartup, head.transform.eulerAngles.y);
     }
 
     private void UpdateReverseMode()

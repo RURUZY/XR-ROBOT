@@ -138,6 +138,8 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
     private Quaternion initialSphereRotation;
     private float initialRobotYaw;
     private float latestRobotYaw;
+    private int lastCorrectionFrame = -1;
+    private float lastCorrection;
     private float lastHeadingTime;
     private float headingStartTime;
     private bool hasRobotHeading;
@@ -148,8 +150,14 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
     public bool autoReconnect = true;
     [Min(0.5f)] public float reconnectDelay = 2f;
     [Min(2f)] public float iceGatheringTimeout = 10f;
+    [Tooltip("Reconnect when an established connection stays Disconnected this long. Failed/Closed reconnect immediately.")]
+    [Min(0.5f)] public float disconnectedReconnectDelay = 3f;
 
     private RTCPeerConnection peerConnection;
+    // Set from the state callback; handled in Update so the peer connection is
+    // never disposed inside its own callback.
+    private bool connectionLost;
+    private float disconnectedSince = -1f;
     private VideoStreamTrack receivedTrack;
     private Coroutine webRtcUpdateCoroutine;
     private Coroutine connectCoroutine;
@@ -246,12 +254,17 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
             hasRobotHeading = true;
         }
         lastHeadingTime = Time.realtimeSinceStartup;
-        headingHistory.Add(lastHeadingTime, latestRobotYaw);
         headingWarningShown = false;
     }
 
     private void Update()
     {
+        if (peerConnection != null && !stopping && (connectionLost || disconnectedSince >= 0f
+            && Time.realtimeSinceStartup - disconnectedSince >= disconnectedReconnectDelay))
+        {
+            if (connectCoroutine != null) StopCoroutine(connectCoroutine);
+            Fail("Insta360 WHEP connection lost; reconnecting.");
+        }
         if (previousHorizontalFlip != flipVideoHorizontally || previousHeadingMode != panoramaHeadingMode
             || previousCompensationEnabled != compensateRobotHeading || previousCompensationSign != headingCompensationSign)
         {
@@ -267,10 +280,39 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
         if (Input.GetKeyDown(beginCalibrationKey)) BeginForwardCalibration();
         if (calibratingForward && Input.GetKeyDown(saveCalibrationKey)) SaveForwardCalibration();
 
+        TrackCorrectedHeading();
+
         bool controllerActive = headingCorrectionSource != null && headingCorrectionSource.IsControlActive;
         if (alignViewOnActivation && controllerActive && !lastControllerActive) realignPending = true;
         lastControllerActive = controllerActive;
         if (realignPending && !calibratingForward && hasMountCalibration && HasFreshHeading) RealignView();
+    }
+
+    /// <summary>
+    /// Records the corrected heading every frame, so the video delay is applied to
+    /// odometry yaw and its correction together. Delaying only the odometry part
+    /// while adding the current correction turned wheel yaw error (reversing
+    /// straight) into panorama drift. When the correction switches frame (wheel+SLAM
+    /// to Jetson gyro, or correction turned on/off), its value jumps; shift the
+    /// reference by the jump so the view stays put instead of turning by it.
+    /// </summary>
+    private void TrackCorrectedHeading()
+    {
+        int frame = !useSlamCorrectedHeading || headingCorrectionSource == null
+            || !headingCorrectionSource.isActiveAndEnabled ? 0
+            : headingCorrectionSource.UsingGyroHeading ? 2 : 1;
+        float correction = HeadingCorrectionDeg;
+        if (frame != lastCorrectionFrame && lastCorrectionFrame >= 0)
+        {
+            float jump = Mathf.DeltaAngle(lastCorrection, correction);
+            initialRobotYaw += jump;
+            headingHistory.Clear();
+            Debug.Log($"Panorama heading frame changed ({lastCorrectionFrame} -> {frame}); reference shifted by {jump:F1} deg to keep the view.");
+        }
+        lastCorrectionFrame = frame;
+        lastCorrection = correction;
+        if (hasRobotHeading && headingFeedbackUsable)
+            headingHistory.Add(Time.realtimeSinceStartup, CurrentRobotYaw);
     }
 
     /// <summary>
@@ -309,10 +351,10 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
         if (HasCalibratedHeading)
         {
             // An empty history (just reset) samples as 0; use the latest yaw then.
+            // History holds corrected heading (see TrackCorrectedHeading).
             if (!headingHistory.TrySample(Time.realtimeSinceStartup - Mathf.Clamp(videoHeadingDelaySeconds, 0f, 2f),
                     out float displayedYaw))
-                displayedYaw = latestRobotYaw;
-            displayedYaw += HeadingCorrectionDeg;
+                displayedYaw = CurrentRobotYaw;
             float delta = Mathf.DeltaAngle(initialRobotYaw, displayedYaw);
             float sign = !compensateRobotHeading || panoramaHeadingMode == PanoramaHeadingMode.WorldStabilized ? 0f
                 : panoramaHeadingMode == PanoramaHeadingMode.RobotRelative ? -1f : headingCompensationSign;
@@ -519,11 +561,24 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
         RTCConfiguration configuration = default;
         configuration.iceServers = new RTCIceServer[0];
 
-        peerConnection = new RTCPeerConnection(ref configuration);
+        RTCPeerConnection connection = new RTCPeerConnection(ref configuration);
+        peerConnection = connection;
         peerConnection.OnIceConnectionChange = state =>
             Debug.Log($"Insta360 WHEP ICE: {state}");
         peerConnection.OnConnectionStateChange = state =>
+        {
             Debug.Log($"Insta360 WHEP connection: {state}");
+            // Ignore late callbacks from a connection already replaced or closed by cleanup.
+            if (connection != peerConnection) return;
+            if (state == RTCPeerConnectionState.Failed || state == RTCPeerConnectionState.Closed)
+                connectionLost = true;
+            else if (state == RTCPeerConnectionState.Disconnected)
+            {
+                if (disconnectedSince < 0f) disconnectedSince = Time.realtimeSinceStartup;
+            }
+            else
+                disconnectedSince = -1f;
+        };
         peerConnection.OnTrack = OnRemoteTrack;
 
         peerConnection.AddTransceiver(
@@ -701,6 +756,9 @@ public sealed class MediaMtxWhepReceiver : MonoBehaviour
             peerConnection.Dispose();
             peerConnection = null;
         }
+        // After Close(): a Closed callback raised during it must not mark the next connection lost.
+        connectionLost = false;
+        disconnectedSince = -1f;
     }
 
     public void Disconnect()
