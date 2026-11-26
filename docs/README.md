@@ -15,6 +15,7 @@
 | [../AGENTS.md](../AGENTS.md) | 现行 | 协作规则摘要 |
 | [工程协作与跨项目对接流程](ENGINEERING_WORKFLOW.md) | 现行（§8 基线为 10-21） | 诊断、实施、验证分层；与 `livoscan-mywork` 的接口、坐标和时间字段 |
 | [录制清单与问题记录](RECORDING_CHECKLIST_AND_ISSUE_LOG.md) | 现行 + 日志（10-29 起） | 每次实车测试前要录哪些 bag 和 Unity 数据；按日期追加的未解决问题 |
+| [实验数据图（2026-11-26）](figures/README.md) | 现行 | 由全部 KATCaptures（09-15~11-23）和 11-20 Husky 电机日志生成的 19 张图（PNG+PDF）及逐会话汇总 `session_summary.csv`；生成脚本 `figures/make_figures.py` |
 
 ## KAT 控制
 
